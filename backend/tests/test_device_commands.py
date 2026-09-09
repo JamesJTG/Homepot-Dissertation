@@ -1,0 +1,700 @@
+"""Tests for device command management."""
+
+import asyncio
+from datetime import datetime, timedelta, timezone
+import os
+import secrets
+import tempfile
+from typing import Any, Dict
+from unittest.mock import AsyncMock
+
+from fastapi.testclient import TestClient
+import pytest
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+
+from homepot.app.auth_utils import create_access_token, hash_password
+from homepot.config import reload_settings
+import homepot.database
+from homepot.models import (
+    Base,
+    CommandStatus,
+    Device,
+    DeviceCommand,
+    EnrolmentIntent,
+    EnrolmentIntentStatus,
+    LifecycleState,
+    Site,
+    User,
+)
+
+
+@pytest.fixture(autouse=True)
+def mock_db_url(monkeypatch):
+    """Use a temporary database for these tests to avoid file locking issues."""
+    # Create a temp file
+    fd, path = tempfile.mkstemp(suffix=".db")
+    os.close(fd)
+
+    # Set env var
+    db_url = f"sqlite:///{path}"
+    monkeypatch.setenv("DATABASE_URL", db_url)
+    monkeypatch.setenv("DATABASE__URL", db_url)
+
+    # Reload settings to pick up new env var
+    reload_settings()
+
+    # Reset the database service singleton so it picks up the new settings
+    if homepot.database._db_service is not None:
+        try:
+            # Properly close the previous async engine to clean up threads/loops
+            asyncio.run(homepot.database._db_service.close())
+        except Exception:
+            # If loop is already closed or other error, just proceed
+            pass
+        homepot.database._db_service = None
+
+    # Create new sync engine for the temp DB (for create_all)
+    new_engine = create_engine(
+        db_url, connect_args={"check_same_thread": False}, pool_pre_ping=True
+    )
+
+    # Create tables
+    Base.metadata.create_all(bind=new_engine)
+
+    # Create new sessionmaker
+    NewSessionLocal = sessionmaker(bind=new_engine, autocommit=False, autoflush=False)
+
+    # Patch the database module globals
+    monkeypatch.setattr(homepot.database, "sync_engine", new_engine)
+    monkeypatch.setattr(homepot.database, "SessionLocal", NewSessionLocal)
+
+    yield
+
+    # Cleanup
+    new_engine.dispose()
+    if os.path.exists(path):
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
+
+
+# Use the client fixture from conftest.py
+def test_device_command_flow(client: TestClient):
+    """Test the full flow of device management.
+
+    1. Create Site (as admin)
+    2. Create Device (in DB, get API Key)
+    3. Queue Command (as admin)
+    4. Retrieve Pending Commands (as Device)
+    """
+    # Create admin user for auth
+    db = homepot.database.SessionLocal()
+    try:
+        admin = User(
+            email="admin@cmd.test",
+            username="admin_cmd",
+            hashed_password=hash_password("pass"),
+            is_admin=True,
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
+        )
+        db.add(admin)
+        db.commit()
+        db.refresh(admin)
+    finally:
+        db.close()
+
+    token = create_access_token({"sub": "admin@cmd.test"})
+    auth_headers = {"Authorization": f"Bearer {token}"}
+
+    # 1. Create Site
+    site_id = "test-site-cmd-flow"
+    site_data = {
+        "site_id": site_id,
+        "name": "Command Flow Test Site",
+        "location": "Test Lab",
+    }
+    response = client.post("/api/v1/sites/", json=site_data, headers=auth_headers)
+    if response.status_code != 409:
+        assert response.status_code == 200
+    site_id = response.json()["site_id"]
+
+    # 2. Create Device directly in DB
+    device_id = "test-device-cmd-flow"
+    api_key = secrets.token_urlsafe(32)
+    api_key_hash = hash_password(api_key)
+
+    db = homepot.database.SessionLocal()
+    try:
+        site = db.query(Site).filter(Site.site_id == site_id).first()
+        assert site is not None, "Site must exist"
+        device = Device(
+            device_id=device_id,
+            name="Command Flow Device",
+            device_type="pos_terminal",
+            site_id=site.id,
+            api_key_hash=api_key_hash,
+            is_active=True,
+            lifecycle_state=LifecycleState.ACTIVE.value,
+        )
+        db.add(device)
+        db.commit()
+    finally:
+        db.close()
+
+    # 3. Queue Command (as authenticated admin)
+    command_payload = {
+        "command_type": "ping",
+        "payload": {"reason": "integration_test"},
+    }
+    response = client.post(
+        f"/api/v1/devices/{device_id}/commands",
+        json=command_payload,
+        headers=auth_headers,
+    )
+    assert response.status_code == 201
+    cmd_data = response.json()
+    command_id = cmd_data["command_id"]
+    assert cmd_data["status"] == "pending"
+
+    # 4. Get Pending Commands (As Device)
+    device_headers = {"X-Device-ID": device_id, "X-API-Key": api_key}
+    response = client.get("/api/v1/devices/pending", headers=device_headers)
+    assert response.status_code == 200
+    pending_cmds = response.json()
+
+    # Verify our command is in the list
+    found = False
+    for cmd in pending_cmds:
+        if cmd["command_id"] == command_id:
+            found = True
+            assert cmd["command_type"] == "ping"
+            break
+    assert found, "Queued command not found in pending list"
+
+
+def test_device_auth_failure(client: TestClient):
+    """Test that invalid credentials are rejected."""
+    headers = {"X-Device-ID": "non-existent-device", "X-API-Key": "invalid-key"}
+    response = client.get("/api/v1/devices/pending", headers=headers)
+    assert response.status_code == 401
+
+
+# -- Helpers for command history tests --
+
+TEST_ADMIN_EMAIL = "admin.history@test.local"
+
+
+def _setup_site_and_device(client: TestClient) -> Dict[str, Any]:
+    """Create a site and device, returning IDs and auth headers."""
+    db = homepot.database.SessionLocal()
+    try:
+        existing = db.query(User).filter(User.email == TEST_ADMIN_EMAIL).first()
+        if not existing:
+            admin = User(
+                email=TEST_ADMIN_EMAIL,
+                username="admin_history",
+                hashed_password=hash_password("pass"),
+                is_admin=True,
+                created_at=datetime.now(timezone.utc),
+                updated_at=datetime.now(timezone.utc),
+            )
+            db.add(admin)
+            db.commit()
+    finally:
+        db.close()
+
+    token = create_access_token({"sub": TEST_ADMIN_EMAIL})
+    auth_headers = {"Authorization": f"Bearer {token}"}
+
+    site_id = "test-site-history"
+    resp = client.post(
+        "/api/v1/sites",
+        json={
+            "site_id": site_id,
+            "name": "History Test Site",
+        },
+        headers=auth_headers,
+    )
+    if resp.status_code not in (200, 409):
+        assert False, f"Failed to create site: {resp.text}"
+    site_id = resp.json()["site_id"]
+
+    device_id = "test-device-history"
+    api_key = secrets.token_urlsafe(32)
+    api_key_hash = hash_password(api_key)
+
+    db = homepot.database.SessionLocal()
+    try:
+        site = db.query(Site).filter(Site.site_id == site_id).first()
+        assert site is not None
+        existing_dev = db.query(Device).filter(Device.device_id == device_id).first()
+        if not existing_dev:
+            device = Device(
+                device_id=device_id,
+                name="History Device",
+                device_type="pos_terminal",
+                site_id=site.id,
+                api_key_hash=api_key_hash,
+                is_active=True,
+                lifecycle_state=LifecycleState.ACTIVE.value,
+            )
+            db.add(device)
+            db.commit()
+            db.refresh(device)
+    finally:
+        db.close()
+
+    return {
+        "site_id": site_id,
+        "device_id": device_id,
+        "api_key": api_key,
+        "auth_headers": auth_headers,
+    }
+
+
+def _queue_command(
+    client: TestClient,
+    device_id: str,
+    headers: Dict[str, str],
+    command_type: str = "ping",
+) -> str:
+    """Queue a command and return its command_id."""
+    resp = client.post(
+        f"/api/v1/devices/{device_id}/commands",
+        json={"command_type": command_type, "payload": {"test": True}},
+        headers=headers,
+    )
+    assert resp.status_code == 201, f"Failed to queue command: {resp.text}"
+    return resp.json()["command_id"]
+
+
+def _set_permissions(device_id: str, permissions: Dict[str, bool]) -> None:
+    db = homepot.database.SessionLocal()
+    try:
+        device = db.query(Device).filter(Device.device_id == device_id).first()
+        assert device is not None
+        device.device_permissions = permissions
+        db.commit()
+    finally:
+        db.close()
+
+
+def test_run_command_requires_root_grant(client: TestClient) -> None:
+    """The API rejects command execution before the owner grants root."""
+    ctx = _setup_site_and_device(client)
+    _set_permissions(ctx["device_id"], {"root_access": False})
+
+    resp = client.post(
+        f"/api/v1/devices/{ctx['device_id']}/commands",
+        json={
+            "command_type": "run_command",
+            "payload": {"data": {"command": "whoami"}},
+        },
+        headers=ctx["auth_headers"],
+    )
+
+    assert resp.status_code == 403
+    assert resp.json()["detail"]["missing_permissions"] == ["root_access"]
+
+
+def test_manage_grant_alone_denies_run_command(client: TestClient) -> None:
+    """A manage (command_execution) grant alone cannot run commands — root needed."""
+    ctx = _setup_site_and_device(client)
+    _set_permissions(ctx["device_id"], {"command_execution": True})
+
+    resp = client.post(
+        f"/api/v1/devices/{ctx['device_id']}/commands",
+        json={
+            "command_type": "run_command",
+            "payload": {"data": {"command": "whoami"}},
+        },
+        headers=ctx["auth_headers"],
+    )
+
+    assert resp.status_code == 403
+    assert resp.json()["detail"]["missing_permissions"] == ["root_access"]
+
+
+def test_run_command_queues_after_root_grant(client: TestClient) -> None:
+    """The API queues commands after the owner grants root access."""
+    ctx = _setup_site_and_device(client)
+    _set_permissions(ctx["device_id"], {"root_access": True})
+
+    resp = client.post(
+        f"/api/v1/devices/{ctx['device_id']}/commands",
+        json={
+            "command_type": "run_command",
+            "payload": {"data": {"command": "whoami"}},
+        },
+        headers=ctx["auth_headers"],
+    )
+
+    assert resp.status_code == 201
+    assert resp.json()["command_type"] == "run_command"
+
+
+def test_queueing_command_sends_wakeup(client, monkeypatch) -> None:
+    """Queuing a command triggers a best-effort silent wake-up."""
+    from homepot.database import SessionLocal
+    from homepot.models import Device
+
+    wakeup = AsyncMock()
+    wakeup.return_value = None
+    monkeypatch.setattr(
+        "homepot.app.api.API_v1.Endpoints.DeviceCommandsEndpoint.send_command_wakeup",
+        wakeup,
+    )
+
+    ctx = _setup_site_and_device(client)
+    device_id = ctx["device_id"]
+
+    db = SessionLocal()
+    try:
+        device = db.query(Device).filter(Device.device_id == device_id).first()
+        assert device is not None
+        device.push_channel = "fcm"
+        device.push_token = "tok-wakeup-test"
+        db.commit()
+    finally:
+        db.close()
+
+    resp = client.post(
+        f"/api/v1/devices/{device_id}/commands",
+        json={"command_type": "ping", "payload": {}},
+        headers=ctx["auth_headers"],
+    )
+    assert resp.status_code == 201
+    wakeup.assert_awaited_once()
+
+
+def test_command_history_endpoint(client: TestClient) -> None:
+    """GET /devices/device/{device_id}/commands returns command history."""
+    ctx = _setup_site_and_device(client)
+    h = ctx["auth_headers"]
+    device_id = ctx["device_id"]
+
+    cmd1 = _queue_command(client, device_id, h, "ping")
+    cmd2 = _queue_command(client, device_id, h, "ping")
+
+    resp = client.get(f"/api/v1/devices/device/{device_id}/commands", headers=h)
+    assert resp.status_code == 200
+    data = resp.json()
+    assert isinstance(data, list)
+    assert len(data) >= 2
+
+    # Most recent command first (desc by created_at)
+    assert data[0]["command_type"] == "ping"
+    assert data[1]["command_type"] == "ping"
+    assert data[0]["command_id"] == cmd2
+    assert data[1]["command_id"] == cmd1
+
+    # Verify all expected fields
+    cmd = data[0]
+    assert "command_id" in cmd
+    assert "command_type" in cmd
+    assert "status" in cmd
+    assert cmd["status"] == "pending"
+    assert "payload" in cmd
+    assert "created_at" in cmd
+    assert "executed_at" in cmd  # None for pending
+
+
+def test_command_history_unauthorized(client: TestClient) -> None:
+    """Command history endpoint returns 401 without auth."""
+    resp = client.get("/api/v1/devices/device/unknown/commands")
+    assert resp.status_code == 401
+
+
+def test_expire_stale_commands(client: TestClient) -> None:
+    """expire_stale_commands marks old PENDING commands as EXPIRED."""
+    ctx = _setup_site_and_device(client)
+    h = ctx["auth_headers"]
+    device_id = ctx["device_id"]
+
+    cmd_id = _queue_command(client, device_id, h, "ping")
+
+    # Directly manipulate the command's created_at to be in the past
+    db = homepot.database.SessionLocal()
+    try:
+        cmd = db.query(DeviceCommand).filter(DeviceCommand.command_id == cmd_id).first()
+        assert cmd is not None
+        cmd.created_at = datetime.now(timezone.utc) - timedelta(hours=1)
+        db.commit()
+    finally:
+        db.close()
+
+    # Run expiry with a short TTL
+    async def _expire():
+        svc = await homepot.database.get_database_service()
+        return await svc.expire_stale_commands(ttl_seconds=60)
+
+    expired_count = asyncio.run(_expire())
+    assert expired_count >= 1
+
+    # Verify the command is now expired
+    db = homepot.database.SessionLocal()
+    try:
+        cmd = db.query(DeviceCommand).filter(DeviceCommand.command_id == cmd_id).first()
+        assert cmd is not None
+        assert cmd.status == CommandStatus.EXPIRED
+    finally:
+        db.close()
+
+
+def test_expire_stale_enrolment_intents(client: TestClient) -> None:
+    """expire_stale_enrolment_intents marks past-expiry intents as EXPIRED."""
+    ctx = _setup_site_and_device(client)
+    site_id = ctx["site_id"]
+
+    db = homepot.database.SessionLocal()
+    intent_id = None
+    try:
+        site = db.query(Site).filter(Site.site_id == site_id).first()
+        assert site is not None
+
+        # Create an intent that expired 1 hour ago
+        intent = EnrolmentIntent(
+            intent_id="test-expired-intent",
+            site_id=site.id,
+            enrolment_method="pre-provisioned",
+            expires_at=datetime.now(timezone.utc) - timedelta(hours=1),
+            creator_id=1,  # admin user
+            status=EnrolmentIntentStatus.PENDING,
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
+        )
+        db.add(intent)
+
+        # Create a non-expired intent for comparison
+        active_intent = EnrolmentIntent(
+            intent_id="test-active-intent",
+            site_id=site.id,
+            enrolment_method="pre-provisioned",
+            expires_at=datetime.now(timezone.utc) + timedelta(hours=24),
+            creator_id=1,
+            status=EnrolmentIntentStatus.PENDING,
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
+        )
+        db.add(active_intent)
+        db.commit()
+        intent_id = intent.intent_id
+    finally:
+        db.close()
+
+    async def _expire():
+        svc = await homepot.database.get_database_service()
+        return await svc.expire_stale_enrolment_intents()
+
+    expired_count = asyncio.run(_expire())
+    assert expired_count >= 1
+
+    db = homepot.database.SessionLocal()
+    try:
+        expired = (
+            db.query(EnrolmentIntent)
+            .filter(EnrolmentIntent.intent_id == intent_id)
+            .first()
+        )
+        assert expired is not None
+        assert expired.status == EnrolmentIntentStatus.EXPIRED
+
+        active = (
+            db.query(EnrolmentIntent)
+            .filter(EnrolmentIntent.intent_id == "test-active-intent")
+            .first()
+        )
+        assert active is not None
+        assert active.status == EnrolmentIntentStatus.PENDING
+    finally:
+        db.close()
+
+
+def test_agent_list_includes_modern_state_fields(client: TestClient) -> None:
+    """GET /agents returns lifecycle_state, connectivity_state, health_state."""
+    ctx = _setup_site_and_device(client)
+    h = ctx["auth_headers"]
+    device_id = ctx["device_id"]
+
+    resp = client.get("/api/v1/agents", headers=h)
+    assert resp.status_code == 200
+    agents = resp.json().get("agents", [])
+    assert len(agents) > 0
+
+    agent = next((a for a in agents if a["device_id"] == device_id), None)
+    assert agent is not None, f"Device {device_id} not found in agent list"
+
+    assert "lifecycle_state" in agent
+    assert "connectivity_state" in agent
+    assert "health_state" in agent
+    assert "state" not in agent  # deprecated field removed
+
+    assert agent["lifecycle_state"] in (
+        "pending",
+        "active",
+        "suspended",
+        "unpaired",
+    )
+    assert agent["connectivity_state"] in ("unknown", "online", "offline")
+    assert agent["health_state"] in (
+        "healthy",
+        "warning",
+        "error",
+        "maintenance",
+        "unknown",
+    )
+    assert "device_id" in agent
+    assert "config_version" in agent
+    assert "last_health_check" in agent
+    assert "uptime" in agent
+
+
+def test_agent_detail_includes_modern_state_fields(client: TestClient) -> None:
+    """GET /agents/{device_id} returns lifecycle_state, connectivity_state, health_state."""
+    ctx = _setup_site_and_device(client)
+    h = ctx["auth_headers"]
+    device_id = ctx["device_id"]
+
+    resp = client.get(f"/api/v1/agents/{device_id}", headers=h)
+    assert resp.status_code == 200
+    data = resp.json()
+
+    assert "lifecycle_state" in data
+    assert "connectivity_state" in data
+    assert "health_state" in data
+    assert "state" not in data  # deprecated field removed
+
+    assert data["lifecycle_state"] in (
+        "pending",
+        "active",
+        "suspended",
+        "unpaired",
+    )
+    assert data["connectivity_state"] in ("unknown", "online", "offline")
+    assert data["device_id"] == device_id
+
+
+def _device_headers(ctx: Dict[str, Any]) -> Dict[str, str]:
+    """Build the device auth headers for a setup context."""
+    return {
+        "X-Device-ID": ctx["device_id"],
+        "X-API-Key": ctx["api_key"],
+    }
+
+
+def _history_for(client: TestClient, ctx: Dict[str, Any]) -> list:
+    """Return the command history list for the setup device."""
+    resp = client.get(
+        f"/api/v1/devices/device/{ctx['device_id']}/commands",
+        headers=ctx["auth_headers"],
+    )
+    assert resp.status_code == 200
+    return resp.json()
+
+
+def test_command_lifecycle_timestamps(client: TestClient) -> None:
+    """PENDING → SENT → COMPLETED records sent_at and executed_at."""
+    ctx = _setup_site_and_device(client)
+    device_id = ctx["device_id"]
+    dheaders = _device_headers(ctx)
+
+    cmd_id = _queue_command(client, device_id, ctx["auth_headers"], "ping")
+
+    history = _history_for(client, ctx)
+    row = next(c for c in history if c["command_id"] == cmd_id)
+    assert row["sent_at"] is None
+    assert row["executed_at"] is None
+
+    # Ack the command → SENT, sent_at stamped
+    resp = client.post(
+        f"/api/v1/devices/{device_id}/commands/{cmd_id}/ack", headers=dheaders
+    )
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "sent"
+
+    history = _history_for(client, ctx)
+    row = next(c for c in history if c["command_id"] == cmd_id)
+    assert row["sent_at"] is not None
+    assert row["executed_at"] is None
+
+    # Report COMPLETED with a device-reported executed_at
+    executed_at = datetime.now(timezone.utc).isoformat()
+    resp = client.put(
+        f"/api/v1/devices/{cmd_id}/status",
+        json={
+            "status": "completed",
+            "result": {"message": "pong"},
+            "executed_at": executed_at,
+        },
+        headers=dheaders,
+    )
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "completed"
+
+    history = _history_for(client, ctx)
+    row = next(c for c in history if c["command_id"] == cmd_id)
+    assert row["sent_at"] is not None
+    stored = datetime.fromisoformat(row["executed_at"])
+    expected = (
+        datetime.fromisoformat(executed_at)
+        .astimezone(timezone.utc)
+        .replace(tzinfo=None)
+    )
+    assert abs((stored - expected).total_seconds()) < 5
+
+
+def test_command_status_defaults_executed_at_to_server_time(client: TestClient) -> None:
+    """PUT /status without executed_at records the server clock."""
+    ctx = _setup_site_and_device(client)
+    device_id = ctx["device_id"]
+    dheaders = _device_headers(ctx)
+
+    cmd_id = _queue_command(client, device_id, ctx["auth_headers"], "ping")
+
+    resp = client.put(
+        f"/api/v1/devices/{cmd_id}/status",
+        json={"status": "failed", "result": {"error": "boom"}},
+        headers=dheaders,
+    )
+    assert resp.status_code == 200
+
+    history = _history_for(client, ctx)
+    row = next(c for c in history if c["command_id"] == cmd_id)
+    assert row["status"] == "failed"
+    assert row["executed_at"] is not None
+
+
+def test_command_expiry_records_executed_at(client: TestClient) -> None:
+    """Expired commands are stamped with executed_at."""
+    ctx = _setup_site_and_device(client)
+    device_id = ctx["device_id"]
+
+    cmd_id = _queue_command(client, device_id, ctx["auth_headers"], "ping")
+
+    db = homepot.database.SessionLocal()
+    try:
+        cmd = db.query(DeviceCommand).filter(DeviceCommand.command_id == cmd_id).first()
+        assert cmd is not None
+        cmd.created_at = datetime.now(timezone.utc) - timedelta(hours=1)
+        db.commit()
+    finally:
+        db.close()
+
+    async def _expire():
+        svc = await homepot.database.get_database_service()
+        return await svc.expire_stale_commands(ttl_seconds=60)
+
+    expired_count = asyncio.run(_expire())
+    assert expired_count >= 1
+
+    db = homepot.database.SessionLocal()
+    try:
+        cmd = db.query(DeviceCommand).filter(DeviceCommand.command_id == cmd_id).first()
+        assert cmd is not None
+        assert cmd.status == CommandStatus.EXPIRED
+        assert cmd.executed_at is not None
+    finally:
+        db.close()

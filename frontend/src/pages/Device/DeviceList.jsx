@@ -1,0 +1,202 @@
+import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
+import {
+  Search,
+  Monitor,
+  ArrowLeft,
+  Activity,
+  Server,
+  Wifi,
+  WifiOff,
+  AlertCircle,
+} from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import api from '@/services/api';
+import { trackActivity, trackSearch } from '@/utils/analytics';
+
+const LIFECYCLE_COLORS = {
+  pending: 'bg-yellow-500/10 text-yellow-400',
+  active: 'bg-green-500/10 text-green-400',
+  suspended: 'bg-orange-500/10 text-orange-400',
+  unpaired: 'bg-gray-500/10 text-gray-400',
+};
+
+const CONNECTIVITY_COLORS = {
+  online: 'text-green-400',
+  offline: 'text-gray-400',
+  unknown: 'text-gray-500',
+};
+
+export default function DeviceList() {
+  const navigate = useNavigate();
+  const [devices, setDevices] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [lifecycleFilter, setLifecycleFilter] = useState('');
+
+  useEffect(() => {
+    fetchDevices();
+    trackActivity('page_view', '/device');
+  }, []);
+
+  const fetchDevices = async () => {
+    try {
+      setLoading(true);
+      const data = await api.devices.list();
+      // Handle different response structures
+      const fetchedDevices = Array.isArray(data) ? data : data.devices || [];
+
+      // Sort alphabetically by name
+      fetchedDevices.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+
+      setDevices(fetchedDevices);
+    } catch (err) {
+      console.error('Failed to fetch devices:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const filteredDevices = devices.filter((device) => {
+    const matchSearch =
+      (device.name?.toLowerCase() || '').includes(searchTerm.toLowerCase()) ||
+      (device.device_id?.toLowerCase() || '').includes(searchTerm.toLowerCase());
+
+    const matchLifecycle = lifecycleFilter
+      ? device.lifecycle_state?.toLowerCase() === lifecycleFilter.toLowerCase()
+      : true;
+
+    return matchSearch && matchLifecycle;
+  });
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-[#0b0e13] text-white flex items-center justify-center">
+        <p className="text-teal-400 animate-pulse">Loading devices...</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="h-full max-h-screen bg-[#0b0e13] text-white p-2 md:p-6 flex flex-col overflow-hidden">
+      <div className="shrink-0 mb-4">
+        <Button
+          variant="ghost"
+          onClick={() => navigate('/dashboard')}
+          className="mb-4 pl-0 hover:pl-1 transition-all text-gray-400 hover:text-white hover:bg-transparent"
+        >
+          <ArrowLeft className="h-4 w-4 mr-2" />
+          Back to Dashboard
+        </Button>
+
+        <div className="flex flex-col md:flex-row justify-between items-center mb-6 gap-3">
+          <h1 className="text-2xl font-semibold">Managed Devices</h1>
+        </div>
+
+        <div className="flex flex-col md:flex-row items-center gap-3 mb-6">
+          {/* Search input */}
+          <div className="relative w-full md:w-1/2">
+            <span className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none">
+              <Search className="h-5 w-5 text-gray-400" />
+            </span>
+            <input
+              type="text"
+              placeholder="Search by device ID or name"
+              className="bg-[#141a24] border border-[#1f2735] text-white px-10 py-2 rounded-lg w-full focus:outline-none focus:border-teal-500 transition-colors"
+              value={searchTerm}
+              onChange={(e) => {
+                setSearchTerm(e.target.value);
+                trackSearch(e.target.value, '/device', 0);
+              }}
+            />
+          </div>
+
+          {/* Lifecycle Filter */}
+          <select
+            className="bg-[#141a24] border border-[#1f2735] text-white w-full md:w-80 px-4 py-[10px] rounded-lg focus:outline-none focus:border-teal-500 transition-colors"
+            value={lifecycleFilter}
+            onChange={(e) => setLifecycleFilter(e.target.value)}
+          >
+            <option value="">All Lifecycle States</option>
+            <option value="pending">Pending</option>
+            <option value="active">Active</option>
+            <option value="suspended">Suspended</option>
+            <option value="unpaired">Unpaired</option>
+          </select>
+        </div>
+      </div>
+
+      <div className="flex-1 overflow-y-auto min-h-0 pr-1 pb-4 custom-scrollbar">
+        <div className="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+          {filteredDevices.map((device) => (
+            <div
+              key={device.id || device.device_id}
+              className="bg-[#141a24] border border-[#1f2735] rounded-xl p-5 hover:border-teal-400 transition-all flex flex-col group relative cursor-pointer"
+              onClick={() => navigate(`/device/${device.device_id}`)}
+            >
+              <div className="flex justify-between items-start mb-4">
+                <div className="p-2 rounded-lg bg-[#1f2735] text-teal-400">
+                  <Monitor size={24} />
+                </div>
+                <div className="flex items-center gap-2">
+                  <span
+                    className={`w-2 h-2 rounded-full ${CONNECTIVITY_COLORS[device.connectivity_state] || 'text-gray-500'} bg-current shadow-[0_0_6px_currentColor]`}
+                  />
+                  <div
+                    className={`px-2 py-1 rounded text-xs font-medium ${
+                      LIFECYCLE_COLORS[device.lifecycle_state] || 'bg-gray-500/10 text-gray-400'
+                    }`}
+                  >
+                    {device.lifecycle_state?.toUpperCase() || 'UNKNOWN'}
+                  </div>
+                  {device.enrollment_method === 'emulated' ||
+                  device.device_source === 'emulator' ? (
+                    <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-cyan-500/10 text-cyan-400 border border-cyan-500/20">
+                      EMU
+                    </span>
+                  ) : device.is_simulated ? (
+                    <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-purple-500/10 text-purple-400 border border-purple-500/20">
+                      SIM
+                    </span>
+                  ) : null}
+                </div>
+              </div>
+
+              <div className="mb-4">
+                <h2 className="text-lg font-semibold text-white truncate">
+                  {device.name || device.device_id}
+                </h2>
+                <p className="text-sm text-gray-400 truncate">Device ID: {device.device_id}</p>
+              </div>
+
+              <div className="mt-auto space-y-2">
+                <div className="flex items-center justify-between text-sm text-gray-400">
+                  <span className="flex items-center gap-2">
+                    <Server size={14} />
+                    Site
+                  </span>
+                  <span className="text-gray-300">{device.site_id || 'Unassigned'}</span>
+                </div>
+                <div className="flex items-center justify-between text-sm text-gray-400">
+                  <span className="flex items-center gap-2">
+                    <Activity size={14} />
+                    Type
+                  </span>
+                  <span className="text-gray-300 capitalize">
+                    {device.device_type?.replace(/_/g, ' ') || 'Generic'}
+                  </span>
+                </div>
+              </div>
+            </div>
+          ))}
+
+          {filteredDevices.length === 0 && (
+            <div className="col-span-full text-center py-12 text-gray-500">
+              No devices found matching your criteria.
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}

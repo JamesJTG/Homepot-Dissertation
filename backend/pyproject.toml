@@ -1,0 +1,246 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "homepot-client"
+version = "0.1.0"
+authors = [
+    {name = "HOMEPOT Consortium", email = "contact@homepot-consortium.org"},
+]
+description = "HOMEPOT Client - Homogenous Cyber Management of End-Points and Operational Technology"
+readme = "README.md"
+license = {text = "Apache-2.0"}
+requires-python = ">=3.11"
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: System :: Networking",
+    "Topic :: System :: Systems Administration",
+]
+keywords = ["homepot", "iot", "device-management", "operational-technology", "retail", "hospitality", "industrial"]
+
+dependencies = [
+    "fastapi>=0.104.0",
+    "uvicorn[standard]>=0.24.0",
+    "pydantic[email]>=2.5.0",
+    "pydantic-settings>=2.1.0",
+    "httpx>=0.25.0",
+    "aiohttp>=3.9.0",
+    "asyncio-mqtt>=0.16.0",
+    "cryptography>=41.0.0",
+    "pyjwt[crypto]>=2.8.0",
+    "passlib[argon2]>=1.7.4",
+    "bcrypt==4.1.3",  # Pinned for passlib compatibility (v5.x has breaking changes)
+    "python-multipart>=0.0.6",
+    "structlog>=23.2.0",
+    "rich>=13.7.0",
+    "typer>=0.9.0",
+    "pyyaml>=6.0.1",
+    "python-dotenv>=1.0.0",
+    "psutil>=5.9.0",
+    "platformdirs>=4.0.0",
+    # AI Dependencies
+    "chromadb>=0.4.0",
+    "ollama>=0.1.0",
+    "textblob>=0.17.1",
+    # Database dependencies
+    "sqlalchemy>=2.0.0",
+    "aiosqlite>=0.19.0",
+    "alembic>=1.12.0",
+    "psycopg2-binary>=2.9.9",  # PostgreSQL driver
+    "asyncpg>=0.29.0",  # Async PostgreSQL driver
+    # Background tasks
+    "celery>=5.3.0",
+    "redis>=5.0.0",
+    # Real-time communication
+    "websockets>=12.0",
+    # Authentication & SSO
+    "google-auth>=2.23.0",
+    "google-auth-oauthlib>=1.1.0",
+    "requests>=2.31.0",
+    "slowapi>=0.1.9",
+    # Testing runtime dependency for factories
+    "greenlet>=2.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-asyncio>=0.21.0",
+    "pytest-cov>=4.1.0",
+    "pytest-mock>=3.12.0",
+    "pytest-xdist>=3.5.0",
+    "httpx>=0.25.0",  # for testing
+    "black>=23.0.0",
+    "isort>=5.12.0",
+    "flake8>=6.1.0",
+    "flake8-docstrings>=1.7.0",
+    "flake8-bandit>=4.1.1",
+    "mypy>=1.7.0",
+    "bandit[toml]>=1.7.5",
+    "safety>=2.3.0",
+    "pre-commit>=3.6.0",
+]
+test = [
+    "pytest>=7.4.0",
+    "pytest-asyncio>=0.21.0",
+    "pytest-cov>=4.1.0",
+    "pytest-mock>=3.12.0",
+    "pytest-xdist>=3.5.0",
+    "factory-boy>=3.3.0",
+    "faker>=20.1.0",
+    "greenlet>=2.0.0",
+]
+agent = [
+    "httpx>=0.25.0",
+    "psutil>=5.9.0",
+    "platformdirs>=4.0.0",
+    "keyring>=25.0.0",
+    "pywin32>=306; sys_platform == 'win32'",
+    "winrt-Windows.Networking.PushNotifications>=2.0.0; sys_platform == 'win32'",
+]
+
+[project.urls]
+Homepage = "https://github.com/brunel-opensim/homepot-client"
+Repository = "https://github.com/brunel-opensim/homepot-client.git"
+Issues = "https://github.com/brunel-opensim/homepot-client/issues"
+Documentation = "https://github.com/brunel-opensim/homepot-client/tree/main/docs"
+
+[project.scripts]
+homepot-client = "homepot.cli:main"
+homepot-agent = "homepot.agent.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["homepot*"]
+
+[tool.setuptools.package-dir]
+"" = "."
+
+# Black configuration
+[tool.black]
+line-length = 88
+target-version = ['py39', 'py310', 'py311', 'py312']
+include = '\.pyi?$'
+extend-exclude = '''
+/(
+  # directories
+  \.eggs
+  | \.git
+  | \.hg
+  | \.mypy_cache
+  | \.tox
+  | \.venv
+  | build
+  | dist
+)/
+'''
+
+# isort configuration
+[tool.isort]
+profile = "black"
+line_length = 88
+known_first_party = ["homepot"]
+known_third_party = ["fastapi", "pydantic", "pytest"]
+src_paths = ["src"]
+force_sort_within_sections = true
+order_by_type = true
+
+# MyPy configuration
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = false
+warn_unused_configs = true
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+check_untyped_defs = true
+disallow_untyped_decorators = false
+no_implicit_optional = false
+warn_redundant_casts = true
+warn_unused_ignores = false
+warn_no_return = false
+warn_unreachable = true
+strict_equality = false
+plugins = ["sqlalchemy.ext.mypy.plugin"]
+
+[[tool.mypy.overrides]]
+module = "tests.*"
+disallow_untyped_defs = false
+
+# Pytest configuration
+[tool.pytest.ini_options]
+minversion = "7.0"
+addopts = [
+    "--strict-markers",
+    "--strict-config",
+    "--cov=homepot",
+    "--cov-report=term-missing",
+    "--cov-report=html",
+    "--cov-report=xml",
+    "--cov-fail-under=10",
+]
+asyncio_default_fixture_loop_scope = "function"
+pythonpath = ["."]
+testpaths = ["tests"]
+python_files = ["test_*.py", "*_test.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "integration: marks tests as integration tests",
+    "unit: marks tests as unit tests",
+    "security: marks tests as security tests",
+    "performance: marks tests as performance tests",
+    "live: marks tests that require live services",
+    "api: marks tests for API functionality",
+    "timescaledb: marks tests requiring TimescaleDB extension (run with -m timescaledb)",
+    "windows_resilience: marks Windows resilience tests (run on windows-latest CI)",
+]
+asyncio_mode = "auto"
+# Windows-specific configuration for better file handling
+filterwarnings = [
+    "ignore::Warning:homepot.*",
+    "ignore:.*Database cleanup.*:UserWarning",
+    "ignore:.*Could not cleanup temp database.*:UserWarning",
+    "ignore:'crypt' is deprecated:DeprecationWarning",
+]
+
+# Coverage configuration
+[tool.coverage.run]
+source = ["homepot"]
+omit = [
+    "*/tests/*",
+    "*/test_*",
+    "*/__pycache__/*",
+    "*/site-packages/*",
+    "*/venv/*",
+    "*/.venv/*",
+    "homepot/main.py",  # Exclude FastAPI demo app from coverage
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "if self.debug:",
+    "if settings.DEBUG",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if 0:",
+    "if __name__ == .__main__.:",
+    "class .*\\bProtocol\\):",
+    "@(abc\\.)?abstractmethod",
+]
+
+# Bandit configuration
+[tool.bandit]
+exclude_dirs = ["tests", "venv", ".venv"]
+tests = ["B201", "B301"]
+skips = ["B101", "B601"]

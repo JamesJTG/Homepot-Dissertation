@@ -1,0 +1,153 @@
+"""API router managing for all Endpoints in the HomePot system."""
+
+from fastapi import APIRouter
+
+from homepot.agent.agent_api import router
+
+from .Endpoints import (
+    AgentAlertEndpoint,
+    AgentAuditEndpoint,
+    AgentConfigHistoryEndpoint,
+    AgentHeartbeatEndpoint,
+    AgentJobsEndpoint,
+    AgentLogsEndpoint,
+    AgentRegisterEndpoint,
+    AgentsEndpoints,
+    AgentStatusEndpoint,
+    AgentTelemetryEndpoint,
+    AIEndpoint,
+    AnalyticsEndpoint,
+    ClientEndpoint,
+    DashboardEndpoint,
+    DeviceBootstrapProvisionEndpoint,
+    DeviceCommandsEndpoint,
+    DeviceCredentialEndpoint,
+    DevicePermissionsEndpoint,
+    DeviceProvisionEndpoint,
+    DevicesEndpoints,
+    DeviceSimulatorEndpoint,
+    EnrolmentIntentsEndpoint,
+    HealthEndpoint,
+    JobsEndpoints,
+    KPIExportEndpoint,
+    PushNotificationEndpoint,
+    SitesBootstrapKeyEndpoint,
+    SiteSchedulesEndpoint,
+    SitesEndpoint,
+    TenantsEndpoint,
+    UIEndpoint,
+    UserRegisterEndpoint,
+)
+from .Endpoints.Mobivisor import LogsEndpoint as MobivisorLogs
+from .Endpoints.Mobivisor import MobivisorDeviceEndpoints as MobivisorDevice
+from .Endpoints.Mobivisor import MobivisorGroupsEndpoints as MobivisorGroupsEndpoints
+from .Endpoints.Mobivisor import MobivisorMobileApps as MobivisorMobileApps
+from .Endpoints.Mobivisor import MobivisorUserEndpoints as MobivisorUserEndpoints
+
+api_v1_router = APIRouter()
+
+api_v1_router.include_router(HealthEndpoint.router, prefix="/health", tags=["Health"])
+api_v1_router.include_router(
+    HealthEndpoint.device_metrics_router, tags=["Health", "Device Metrics"]
+)
+api_v1_router.include_router(UIEndpoint.router, prefix="/ui", tags=["UI"])
+api_v1_router.include_router(ClientEndpoint.router, prefix="/client", tags=["Client"])
+api_v1_router.include_router(SitesEndpoint.router, prefix="/sites", tags=["Sites"])
+api_v1_router.include_router(
+    TenantsEndpoint.router, prefix="/tenants", tags=["Tenants"]
+)
+api_v1_router.include_router(
+    SiteSchedulesEndpoint.router, prefix="/sites", tags=["Site Schedules"]
+)
+api_v1_router.include_router(
+    DevicesEndpoints.router, prefix="/devices", tags=["Devices"]
+)
+api_v1_router.include_router(
+    DeviceCommandsEndpoint.router, prefix="/devices", tags=["Device Commands"]
+)
+api_v1_router.include_router(AgentsEndpoints.router, tags=["Agents"])
+api_v1_router.include_router(
+    UserRegisterEndpoint.router, prefix="/auth", tags=["Authentication"]
+)
+api_v1_router.include_router(
+    MobivisorDevice.router,
+    prefix="/mobivisor",
+    tags=["Mobivisor Devices"],
+)
+api_v1_router.include_router(
+    MobivisorUserEndpoints.router,
+    prefix="/mobivisor",
+    tags=["Mobivisor Users"],
+)
+api_v1_router.include_router(
+    MobivisorGroupsEndpoints.router,
+    prefix="/mobivisor",
+    tags=["Mobivisor Groups"],
+)
+api_v1_router.include_router(
+    MobivisorMobileApps.router,
+    prefix="/mobivisor",
+    tags=["Mobivisor Mobile Apps"],
+)
+api_v1_router.include_router(
+    MobivisorLogs.router,
+    prefix="/mobivisor",
+    tags=["Mobivisor Logs"],
+)
+api_v1_router.include_router(
+    PushNotificationEndpoint.router, prefix="/push", tags=["Push Notifications"]
+)
+api_v1_router.include_router(
+    DeviceSimulatorEndpoint.router, prefix="/testing", tags=["Testing"]
+)
+api_v1_router.include_router(AnalyticsEndpoint.router, tags=["Analytics"])
+api_v1_router.include_router(DashboardEndpoint.router, tags=["Dashboard"])
+api_v1_router.include_router(
+    AIEndpoint.router, prefix="/ai", tags=["AI & Machine Learning"]
+)
+api_v1_router.include_router(KPIExportEndpoint.router, prefix="/kpi", tags=["KPI"])
+
+# Agent APIs (legacy compatibility)
+api_v1_router.include_router(router, prefix="/agent", tags=["Agent"])
+
+# Agent APIs (Clean Architecture Endpoints)
+api_v1_router.include_router(
+    AgentRegisterEndpoint.router, prefix="/agent", tags=["Agent"]
+)
+api_v1_router.include_router(
+    AgentHeartbeatEndpoint.router, prefix="/agent", tags=["Agent"]
+)
+api_v1_router.include_router(AgentLogsEndpoint.router, prefix="/agent", tags=["Agent"])
+api_v1_router.include_router(AgentAuditEndpoint.router, prefix="/agent", tags=["Agent"])
+api_v1_router.include_router(
+    AgentConfigHistoryEndpoint.router, prefix="/agent", tags=["Agent"]
+)
+api_v1_router.include_router(AgentAlertEndpoint.router, prefix="/agent", tags=["Agent"])
+api_v1_router.include_router(AgentJobsEndpoint.router, prefix="/agent", tags=["Agent"])
+api_v1_router.include_router(
+    AgentTelemetryEndpoint.router, prefix="/agent", tags=["Agent"]
+)
+api_v1_router.include_router(
+    AgentStatusEndpoint.router, prefix="/agent", tags=["Agent"]
+)
+api_v1_router.include_router(
+    DeviceProvisionEndpoint.router, prefix="/devices", tags=["Devices"]
+)
+api_v1_router.include_router(
+    DeviceBootstrapProvisionEndpoint.router, prefix="/devices", tags=["Devices"]
+)
+api_v1_router.include_router(SitesBootstrapKeyEndpoint.router, tags=["Sites"])
+api_v1_router.include_router(
+    EnrolmentIntentsEndpoint.router, tags=["Enrolment Intents"]
+)
+api_v1_router.include_router(
+    DeviceCredentialEndpoint.router, prefix="/devices", tags=["Devices"]
+)
+api_v1_router.include_router(
+    DevicePermissionsEndpoint.router, prefix="/devices", tags=["Devices"]
+)
+
+# JobsEndpoints routes are already self-prefixed (e.g. "/sites/{site_id}/jobs").
+# Mounted last, without an additional prefix, so its generic "/{job_id}" status
+# route doesn't shadow more specific literal routes registered above it.
+api_v1_router.include_router(JobsEndpoints.router, tags=["Jobs"])

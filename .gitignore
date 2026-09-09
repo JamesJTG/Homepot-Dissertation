@@ -1,0 +1,56 @@
+# ==========================================
+# HOMEPOT Dissertation
+# Git ignore rules
+# ==========================================
+
+# ------------------
+# macOS
+# ------------------
+.DS_Store
+
+# ------------------
+# Python
+# ------------------
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Python virtual environments
+.venv/
+venv/
+env/
+
+# ------------------
+# Environment variables / secrets
+# ------------------
+.env
+.env.*
+!.env.example
+
+# ------------------
+# Python testing / tooling caches
+# ------------------
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# ------------------
+# IDE-specific files
+# ------------------
+.vscode/
+.idea/
+
+# ------------------
+# Logs
+# ------------------
+*.log
+
+# ------------------
+# Temporary files
+# ------------------
+*.tmp
+*.temp
+*.swp
+*~

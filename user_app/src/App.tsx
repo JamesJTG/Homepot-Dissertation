@@ -1,0 +1,47 @@
+import { type ReactNode } from 'react'
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { useApp } from './context/AppContext'
+import { AppProvider } from './context/AppProvider'
+import ErrorBoundary from './components/ErrorBoundary'
+import PermissionConsentPrompt from './components/PermissionConsentPrompt'
+import SetupWizard from './views/SetupWizard'
+import SignIn from './views/SignIn'
+import HomeDashboard from './views/HomeDashboard'
+import Permissions from './views/Permissions'
+import DeviceInfo from './views/DeviceInfo'
+import Logs from './views/Logs'
+import ClaimDevice from './views/ClaimDevice'
+
+function RootRedirect() {
+  const { isProvisioned, provisionedChecked } = useApp()
+  if (!provisionedChecked) return null
+  return <Navigate to={isProvisioned ? '/home' : '/setup'} replace />
+}
+
+function Wrapped({ children }: { children: ReactNode }) {
+  return <ErrorBoundary>{children}</ErrorBoundary>
+}
+
+export default function App() {
+  return (
+    <BrowserRouter>
+      <AppProvider>
+        <PermissionConsentPrompt />
+        <Routes>
+          <Route path="/" element={<Wrapped><RootRedirect /></Wrapped>} />
+          <Route path="/setup" element={<Wrapped><SetupWizard /></Wrapped>} />
+          <Route path="/method" element={<Wrapped><SetupWizard /></Wrapped>} />
+          <Route path="/emulator" element={<Wrapped><SetupWizard /></Wrapped>} />
+          <Route path="/setup/review" element={<Wrapped><SetupWizard /></Wrapped>} />
+          <Route path="/signin" element={<Wrapped><SignIn /></Wrapped>} />
+          <Route path="/home" element={<Wrapped><HomeDashboard /></Wrapped>} />
+          <Route path="/claim" element={<Wrapped><ClaimDevice /></Wrapped>} />
+          <Route path="/permissions" element={<Wrapped><Permissions /></Wrapped>} />
+          <Route path="/logs" element={<Wrapped><Logs /></Wrapped>} />
+          <Route path="/settings" element={<Wrapped><DeviceInfo /></Wrapped>} />
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </AppProvider>
+    </BrowserRouter>
+  )
+}

@@ -1,0 +1,1256 @@
+#!/usr/bin/env python3
+"""
+Script to seed the database with initial sites, devices, and sample data.
+
+This script creates:
+1. Database schema (if not exists)
+2. Analytics tables
+3. Users (Analytics Test, Simulation)
+4. Demo sites (Standard + OS-specific)
+5. Demo devices (Standard + OS-specific)
+6. Sample data for jobs, health checks, audit logs, and analytics
+7. Full weekly operating schedules
+
+Usage:
+    python backend/utils/seed_data.py
+"""
+
+import asyncio
+from datetime import datetime
+from datetime import time as dt_time
+from datetime import timedelta, timezone
+from pathlib import Path
+import random
+import secrets
+import sys
+
+# Add backend to path
+sys.path.insert(0, str(Path.cwd() / "backend" / "src"))
+
+import os
+import sys
+
+# Monkey patch bcrypt to work with passlib (bcrypt >= 4.0.0 compatibility)
+import bcrypt
+
+# Add project root to path to allow importing 'ai' module
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../"))
+if project_root not in sys.path:
+    sys.path.append(project_root)
+
+from ai.anomaly_detection import AnomalyDetector
+
+from homepot.app.api.API_v1.Endpoints.SitesEndpoint import generate_site_id
+from homepot.app.models.AnalyticsModel import (
+    Alert,
+    APIRequestLog,
+    ConfigurationHistory,
+    DeviceMetrics,
+    DeviceStateHistory,
+    ErrorLog,
+    JobOutcome,
+    PushNotificationLog,
+    SiteOperatingSchedule,
+    UserActivity,
+)
+from homepot.app.models.UserModel import Base as AppBase
+from homepot.canonical_ids import generate_device_id
+from homepot.database import DatabaseService
+from homepot.models import (
+    Base,
+    Device,
+    DeviceType,
+    EnrolmentIntentStatus,
+    HealthState,
+    Job,
+    JobStatus,
+    LifecycleState,
+    Site,
+    User,
+    derive_provenance,
+)
+from homepot.seed_factories import (
+    create_audit_log,
+    create_device,
+    create_device_lifecycle_event,
+    create_enrolment_intent,
+    create_health_check,
+    create_job,
+    create_lifecycle_epoch,
+    create_site,
+    create_site_membership,
+    create_tenant,
+    create_tenant_membership,
+    create_user,
+)
+
+if not hasattr(bcrypt, "__about__"):
+
+    class About:
+        """Monkey patch for bcrypt version."""
+
+        __version__ = bcrypt.__version__
+
+    bcrypt.__about__ = About()
+
+from passlib.context import CryptContext
+from sqlalchemy import select, text
+
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+
+def generate_historical_metrics(
+    device_id: int, hours: int = 24, provenance: str | None = None
+) -> list[DeviceMetrics]:
+    """Generate historical metrics for a device."""
+    metrics = []
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+
+    for i in range(hours):
+        timestamp = now - timedelta(hours=hours - i)
+
+        # Simulate daily cycle (higher load during day)
+        hour_of_day = timestamp.hour
+        is_peak = 9 <= hour_of_day <= 17
+
+        base_cpu = 40 if is_peak else 10
+        base_mem = 60 if is_peak else 30
+        base_trans = 100 if is_peak else 10
+
+        cpu = min(100, max(0, base_cpu + random.uniform(-10, 20)))
+        mem = min(100, max(0, base_mem + random.uniform(-5, 10)))
+        trans_count = int(max(0, base_trans + random.uniform(-20, 50)))
+        trans_vol = trans_count * random.uniform(10, 50)
+
+        metrics.append(
+            DeviceMetrics(
+                device_id=device_id,
+                cpu_percent=round(cpu, 1),
+                memory_percent=round(mem, 1),
+                disk_percent=round(random.uniform(30, 40), 1),
+                network_latency_ms=round(random.uniform(5, 50), 1),
+                transaction_count=trans_count,
+                transaction_volume=round(trans_vol, 2),
+                error_rate=round(random.uniform(0, 2), 2),
+                active_connections=int(trans_count / 10),
+                queue_depth=int(trans_count / 50),
+                timestamp=timestamp,
+                extra_metrics={"temperature_celsius": round(random.uniform(35, 55), 1)},
+                provenance=provenance,
+            )
+        )
+    return metrics
+
+
+def generate_historical_errors(
+    device_id: str, user_id: str, count: int = 5
+) -> list[ErrorLog]:
+    """Generate historical error logs."""
+    errors = []
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    error_types = [
+        ("api", "error", "Connection timeout", "NET001"),
+        ("validation", "warning", "Invalid input format", "VAL001"),
+        ("device", "critical", "Sensor malfunction", "DEV002"),
+        ("auth", "error", "Token expired", "AUTH003"),
+    ]
+
+    for _ in range(count):
+        cat, sev, msg, code = random.choice(error_types)
+        timestamp = now - timedelta(hours=random.randint(1, 48))
+
+        context = {"retry_count": random.randint(1, 3)}
+        if device_id:
+            context["device_id"] = device_id
+
+        errors.append(
+            ErrorLog(
+                category=cat,
+                severity=sev,
+                error_code=code,
+                error_message=msg,
+                endpoint="/api/v1/mobile/sync",
+                user_id=user_id,
+                # device_id removed from model
+                context=context,
+                timestamp=timestamp,
+            )
+        )
+    return errors
+
+
+def generate_historical_user_activity(
+    user_id: str, count: int = 20
+) -> list[UserActivity]:
+    """Generate historical user activity."""
+    activities = []
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    activity_types = ["page_view", "click", "search", "filter"]
+    pages = ["/dashboard", "/devices", "/sites", "/settings"]
+
+    for _ in range(count):
+        timestamp = now - timedelta(hours=random.randint(1, 24))
+        activities.append(
+            UserActivity(
+                user_id=user_id,
+                activity_type=random.choice(activity_types),
+                page_url=random.choice(pages),
+                element_id=f"btn-{random.randint(1, 50)}",
+                duration_ms=random.randint(500, 5000),
+                session_id=f"sess-{random.randint(10000, 99999)}",
+                timestamp=timestamp,
+            )
+        )
+    return activities
+
+
+def generate_problematic_metrics(
+    device_id: int, provenance: str | None = None
+) -> list[DeviceMetrics]:
+    """Generate recent metrics that justify the active alerts (High CPU)."""
+    metrics = []
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+
+    # Generate 15 minutes of high CPU data
+    for i in range(15):
+        timestamp = now - timedelta(minutes=i)
+        metrics.append(
+            DeviceMetrics(
+                device_id=device_id,
+                cpu_percent=round(random.uniform(92.0, 99.0), 2),  # Critical CPU
+                memory_percent=round(random.uniform(60.0, 70.0), 2),
+                disk_percent=round(random.uniform(40.0, 45.0), 2),
+                network_latency_ms=round(random.uniform(20.0, 50.0), 2),
+                transaction_count=random.randint(0, 5),
+                timestamp=timestamp,
+                provenance=provenance,
+            )
+        )
+    return metrics
+
+
+def generate_active_alerts(device_id: str, site_id: int) -> list[Alert]:
+    """Generate sample active alerts for AI testing using real detection logic."""
+    alerts = []
+    detector = AnomalyDetector()
+
+    # Scenario 1: High CPU Usage
+    # Metric that triggers the detector
+    cpu_metrics = {
+        "cpu_percent": 92.5,
+        "memory_percent": 45.0,
+        "disk_percent": 20.0,
+        "network_latency_ms": 15,
+        "error_rate": 0.01,
+    }
+
+    score, reasons = detector.check_anomaly(cpu_metrics)
+    # reasons will look like: ['High CPU: 92.5%']
+
+    if reasons:
+        high_cpu_alert = Alert(
+            device_id=device_id,
+            site_id=site_id,
+            title=f"[DEMO] {reasons[0]} (Simulated)",  # Keep [DEMO] but use real reason
+            description=f"Detected by Anomaly Engine. Score: {score:.2f}. CPU utilization > 90% (Sustainable) - Simulation Test",
+            severity="warning",
+            category="hardware",
+            status="active",
+            ai_confidence=score,
+            ai_recommendation="Check for runaway processes or background updates.",
+            timestamp=datetime.now(timezone.utc).replace(tzinfo=None)
+            - timedelta(minutes=10),
+        )
+        alerts.append(high_cpu_alert)
+
+    # Scenario 2: Network Latency Spike
+    net_metrics = {
+        "cpu_percent": 12.0,
+        "memory_percent": 30.0,
+        "disk_percent": 20.0,
+        "network_latency_ms": 600,  # Very high latency to ensure trigger
+        "error_rate": 0.0,
+    }
+
+    score, reasons = detector.check_anomaly(net_metrics)
+    # reasons will look like: ['High Latency: 600ms']
+
+    if reasons:
+        network_alert = Alert(
+            device_id=device_id,
+            site_id=site_id,
+            title=f"[DEMO] {reasons[0]} (Simulated)",
+            description=f"Detected by Anomaly Engine. Score: {score:.2f}. Latency > 200ms observed for 5 minutes - Simulation Test",
+            severity="critical",
+            category="network",
+            status="active",
+            ai_confidence=score,
+            ai_recommendation="Inspect switch logs and bandwidth usage.",
+            timestamp=datetime.now(timezone.utc).replace(tzinfo=None)
+            - timedelta(minutes=5),
+        )
+        alerts.append(network_alert)
+
+    # Just in case detection failed, we force it for the second one if empty (debugging)
+    if len(reasons) == 0:
+        print(f"WARNING: Network anomaly detection failed for metrics: {net_metrics}")
+
+    return alerts
+
+
+async def init_schema(db_service: DatabaseService) -> None:
+    """Drop existing tables and create the full schema (core + analytics)."""
+    _DROP_TABLES = [
+        "device_lifecycle_events",
+        "lifecycle_epochs",
+        "device_credentials",
+        "device_assignments",
+        "health_checks",
+        "device_commands",
+        "audit_logs",
+        "jobs",
+        "enrolment_intents",
+        "site_memberships",
+        "tenant_memberships",
+        "devices",
+        "site_operating_schedules",
+        "sites",
+        "users",
+        "tenants",
+        "api_request_logs",
+        "device_metrics",
+        "device_state_history",
+        "job_outcomes",
+        "error_logs",
+        "user_activities",
+        "configuration_history",
+        "push_notification_logs",
+        "alerts",
+    ]
+    print("Dropping existing tables...")
+    async with db_service.engine.begin() as conn:
+        for table in _DROP_TABLES:
+            await conn.run_sync(
+                lambda sync_conn, t=table: sync_conn.execute(
+                    text(f"DROP TABLE IF EXISTS {t} CASCADE")
+                )
+            )
+
+    print("Creating database schema...")
+    await db_service.initialize()
+
+    # Create analytics tables (uses same Base as User models)
+    print("Creating analytics tables...")
+    async with db_service.engine.begin() as conn:
+        await conn.run_sync(AppBase.metadata.create_all)
+
+    print("Database schema created")
+
+
+async def create_admin_user(db_service: DatabaseService) -> None:
+    """Create the default admin user (no demo data). Idempotent."""
+    print("\n=== Creating Admin User ===")
+    async with db_service.get_session() as session:
+        existing = await session.execute(
+            select(User).where(User.email == "admin@homepot.com")
+        )
+        if existing.scalar_one_or_none() is not None:
+            print("Admin user already exists, skipping")
+            return
+        admin_user = await create_user(
+            session,
+            username="homepot_admin",
+            email="admin@homepot.com",
+            full_name="System Administrator",
+            password="homepot_dev_password",
+            is_admin=True,
+            tenant_id=None,
+        )
+        await session.commit()
+        print(f"Created admin user: {admin_user.username}")
+
+
+async def init_database(schema_only: bool = False):
+    """Initialize the database schema and, optionally, the demo seed data.
+
+    With ``schema_only=True`` only the schema and the default admin user are
+    created — no tenants, sites, simulated devices or demo analytics data.
+    Used by ``init-postgresql.sh`` so a fresh database starts clean and
+    devices are added explicitly (simulation / emulation / real).
+    """
+    print("Importing database service...")
+
+    # Create database service (will use DATABASE__URL from .env)
+    db_service = DatabaseService()
+
+    await init_schema(db_service)
+
+    if schema_only:
+        await create_admin_user(db_service)
+        print("\n" + "=" * 50)
+        print("SCHEMA + ADMIN CREATED (no demo data)")
+        print("=" * 50)
+        await db_service.close()
+        return
+
+    # --- TENANTS ---
+    print("\n=== Creating Tenants ===")
+    async with db_service.get_session() as session:
+        tenant_a = await create_tenant(
+            session,
+            name="Demo Organization A",
+            slug="demo-org-a",
+            settings={"region": "emea"},
+        )
+        print(f"Created tenant: {tenant_a.name} ({tenant_a.slug})")
+        tenant_b = await create_tenant(
+            session,
+            name="Demo Organization B",
+            slug="demo-org-b",
+            settings={"region": "apac"},
+        )
+        print(f"Created tenant: {tenant_b.name} ({tenant_b.slug})")
+        await session.commit()
+
+    # --- USERS ---
+    print("\n=== Creating Users ===")
+    async with db_service.get_session() as session:
+        admin_user = await create_user(
+            session,
+            username="homepot_admin",
+            email="admin@homepot.com",
+            full_name="System Administrator",
+            password="homepot_dev_password",
+            is_admin=True,
+            tenant_id=tenant_a.id,
+        )
+        print(f"Created user: {admin_user.username}")
+        client_user = await create_user(
+            session,
+            username="homepot_client",
+            email="user@homepot.com",
+            full_name="Standard Client",
+            password="homepot_dev_password",
+            role="Client",
+            is_admin=False,
+            tenant_id=tenant_b.id,
+        )
+        print(f"Created user: {client_user.username}")
+        await session.commit()
+
+    # --- TENANT MEMBERSHIPS ---
+    print("\n=== Creating Tenant Memberships ===")
+    async with db_service.get_session() as session:
+        await create_tenant_membership(
+            session, user_id=admin_user.id, tenant_id=tenant_a.id, role="admin"
+        )
+        print(f"Added admin_user to tenant {tenant_a.slug} as admin")
+        await create_tenant_membership(
+            session, user_id=client_user.id, tenant_id=tenant_b.id, role="member"
+        )
+        print(f"Added client_user to tenant {tenant_b.slug} as member")
+        await session.commit()
+
+    # --- SITES ---
+    print("\n=== Creating Sites ===")
+
+    async def get_or_create_site(
+        session,
+        site_id,
+        name,
+        description,
+        location,
+        latitude=None,
+        longitude=None,
+        tenant_id=None,
+    ):
+        existing = await db_service.get_site_by_site_id(site_id)
+        if existing:
+            return existing
+        existing = await session.execute(select(Site).where(Site.name == name))
+        existing = existing.scalar_one_or_none()
+        if existing:
+            return existing
+        site = await create_site(
+            session,
+            site_id=site_id,
+            name=name,
+            description=description,
+            location=location,
+            latitude=latitude,
+            longitude=longitude,
+            tenant_id=tenant_id,
+        )
+        print(f"Created site: {site.name} ({site_id})")
+        return site
+
+    async with db_service.get_session() as session:
+        site1_id = generate_site_id()
+        site1 = await get_or_create_site(
+            session,
+            site1_id,
+            "Site 1 - Mixed OS",
+            "Mixed environment site 1",
+            "London, UK",
+            40.7128,
+            -74.0060,
+            tenant_id=tenant_a.id,
+        )
+        site2_id = generate_site_id()
+        site2 = await get_or_create_site(
+            session,
+            site2_id,
+            "Site 2 - Mixed OS",
+            "Mixed environment site 2",
+            "London, UK",
+            51.5074,
+            -0.1278,
+            tenant_id=tenant_b.id,
+        )
+        await session.commit()
+
+    sites = [site1, site2]
+
+    # --- SITE MEMBERSHIPS ---
+    print("\n=== Creating Site Memberships ===")
+    async with db_service.get_session() as session:
+        await create_site_membership(
+            session, user_id=admin_user.id, site_id=site1.id, role="admin"
+        )
+        print(f"Added admin_user to site {site1.site_id} as admin")
+        await create_site_membership(
+            session, user_id=client_user.id, site_id=site2.id, role="viewer"
+        )
+        print(f"Added client_user to site {site2.site_id} as viewer")
+        await session.commit()
+
+    # --- DEVICES ---
+    print("\n=== Creating Devices ===")
+
+    async def get_or_create_device(
+        session,
+        name,
+        device_type,
+        site_id,
+        ip_address,
+        config,
+        is_monitored=False,
+        is_simulated=True,
+        enrollment_method="pre-provisioned",
+        enrollment_token=None,
+        capabilities=None,
+        device_permissions=None,
+    ):
+        # Idempotency key is (site, name): on re-runs the existing device is
+        # reused while its device_id stays canonical.
+        existing = await session.execute(
+            select(Device).where(Device.site_id == site_id, Device.name == name)
+        )
+        existing = existing.scalar_one_or_none()
+        if existing:
+            return existing
+        device_id = generate_device_id()
+        while await db_service.get_device_by_device_id(device_id):
+            device_id = generate_device_id()
+        device = await create_device(
+            session,
+            device_id=device_id,
+            name=name,
+            device_type=device_type,
+            site_id=site_id,
+            ip_address=ip_address,
+            config=config,
+            last_seen=datetime.now(timezone.utc),
+            is_monitored=is_monitored,
+            is_simulated=is_simulated,
+            enrollment_method=enrollment_method,
+            enrollment_token=enrollment_token,
+            capabilities=capabilities,
+            device_permissions=device_permissions,
+        )
+        print(
+            f"Created device: {device.name} ({device.device_id}) [Monitored: {is_monitored}] [Simulated: {is_simulated}] [Method: {enrollment_method}]"
+        )
+        return device
+
+    _linux_caps = {
+        "root_access": True,
+        "process_monitoring": True,
+        "filesystem_access": True,
+        "network_monitoring": True,
+    }
+    _linux_perms = {
+        "root_access": True,
+        "process_monitoring": True,
+        "filesystem_access": True,
+        "network_monitoring": True,
+    }
+    _windows_caps = {
+        "root_access": False,
+        "process_monitoring": True,
+        "filesystem_access": True,
+        "network_monitoring": True,
+    }
+    _windows_perms = {
+        "root_access": False,
+        "process_monitoring": True,
+        "filesystem_access": True,
+        "network_monitoring": True,
+    }
+    _macos_caps = {
+        "root_access": True,
+        "process_monitoring": True,
+        "filesystem_access": True,
+        "network_monitoring": True,
+    }
+    _macos_perms = {
+        "root_access": True,
+        "process_monitoring": True,
+        "filesystem_access": True,
+        "network_monitoring": True,
+    }
+    _web_caps = {
+        "root_access": False,
+        "process_monitoring": False,
+        "filesystem_access": False,
+        "network_monitoring": True,
+    }
+    _web_perms = {
+        "root_access": False,
+        "process_monitoring": False,
+        "filesystem_access": False,
+        "network_monitoring": True,
+    }
+    _iot_caps = {
+        "root_access": False,
+        "process_monitoring": False,
+        "filesystem_access": False,
+        "network_monitoring": False,
+    }
+    _iot_perms = {
+        "root_access": False,
+        "process_monitoring": False,
+        "filesystem_access": False,
+        "network_monitoring": False,
+    }
+    _android_caps = {
+        "root_access": False,
+        "process_monitoring": True,
+        "filesystem_access": True,
+        "network_monitoring": True,
+    }
+    _android_perms = {
+        "root_access": False,
+        "process_monitoring": True,
+        "filesystem_access": True,
+        "network_monitoring": True,
+    }
+
+    async with db_service.get_session() as session:
+        await get_or_create_device(
+            session,
+            "Linux POS 1-1",
+            DeviceType.POS_TERMINAL,
+            site1.id,
+            "10.1.1.10",
+            {
+                "os": "linux",
+                "push_platform": "fcm",
+                "agent_version": "1.0.0-sim",
+                "version": "1.0.0",
+            },
+            is_monitored=True,
+            capabilities=_linux_caps,
+            device_permissions=_linux_perms,
+        )
+        await get_or_create_device(
+            session,
+            "Windows POS 1-2",
+            DeviceType.POS_TERMINAL,
+            site1.id,
+            "10.1.2.10",
+            {
+                "os": "windows",
+                "push_platform": "wns",
+                "agent_version": "1.0.0-sim",
+                "version": "1.0.0",
+            },
+            enrollment_method="self-enrolled",
+            enrollment_token="SIM-TOKEN-WIN-02",  # noqa: S106
+            capabilities=_windows_caps,
+            device_permissions=_windows_perms,
+        )
+        await get_or_create_device(
+            session,
+            "Apple POS 1-3",
+            DeviceType.POS_TERMINAL,
+            site1.id,
+            "10.1.3.10",
+            {
+                "os": "macos",
+                "push_platform": "apns",
+                "agent_version": "1.0.0-sim",
+                "version": "1.0.0",
+            },
+            capabilities=_macos_caps,
+            device_permissions=_macos_perms,
+        )
+        await get_or_create_device(
+            session,
+            "Web Dashboard 1-4",
+            DeviceType.POS_TERMINAL,
+            site1.id,
+            "10.1.4.10",
+            {
+                "os": "web",
+                "push_platform": "web_push",
+                "agent_version": "1.0.0-web",
+                "version": "1.0.0",
+            },
+            capabilities=_web_caps,
+            device_permissions=_web_perms,
+        )
+        await get_or_create_device(
+            session,
+            "IoT Sensor 1-5",
+            DeviceType.IOT_SENSOR,
+            site1.id,
+            "10.1.5.10",
+            {
+                "os": "embedded",
+                "push_platform": "mqtt",
+                "agent_version": "1.0.0-iot",
+                "version": "1.0.0",
+            },
+            capabilities=_iot_caps,
+            device_permissions=_iot_perms,
+        )
+        await get_or_create_device(
+            session,
+            "Android POS 1-6",
+            DeviceType.POS_TERMINAL,
+            site1.id,
+            "10.1.6.10",
+            {
+                "os": "android",
+                "device_model": "Android POS Terminal",
+                "kiosk_mode": True,
+                "push_platform": "fcm_android",
+                "agent_version": "1.0.0-sim",
+                "version": "1.0.0",
+            },
+            is_monitored=True,
+            enrollment_method="self-enrolled",
+            capabilities=_android_caps,
+            device_permissions=_android_perms,
+        )
+        await get_or_create_device(
+            session,
+            "Linux POS 2-1",
+            DeviceType.POS_TERMINAL,
+            site2.id,
+            "10.2.1.10",
+            {
+                "os": "linux",
+                "push_platform": "fcm",
+                "agent_version": "1.0.0-sim",
+                "version": "1.0.0",
+            },
+            enrollment_method="self-enrolled",
+            enrollment_token="SIM-TOKEN-LINUX-01",  # noqa: S106
+            capabilities=_linux_caps,
+            device_permissions=_linux_perms,
+        )
+        await get_or_create_device(
+            session,
+            "Windows POS 2-2",
+            DeviceType.POS_TERMINAL,
+            site2.id,
+            "10.2.2.10",
+            {
+                "os": "windows",
+                "push_platform": "wns",
+                "agent_version": "1.0.0-sim",
+                "version": "1.0.0",
+            },
+            capabilities=_windows_caps,
+            device_permissions=_windows_perms,
+        )
+        await get_or_create_device(
+            session,
+            "Apple POS 2-3",
+            DeviceType.POS_TERMINAL,
+            site2.id,
+            "10.2.3.10",
+            {
+                "os": "macos",
+                "push_platform": "apns",
+                "agent_version": "1.0.0-sim",
+                "version": "1.0.0",
+            },
+            capabilities=_macos_caps,
+            device_permissions=_macos_perms,
+        )
+        await get_or_create_device(
+            session,
+            "Web Dashboard 2-4",
+            DeviceType.POS_TERMINAL,
+            site2.id,
+            "10.2.4.10",
+            {
+                "os": "web",
+                "push_platform": "web_push",
+                "agent_version": "1.0.0-web",
+                "version": "1.0.0",
+            },
+            capabilities=_web_caps,
+            device_permissions=_web_perms,
+        )
+        await get_or_create_device(
+            session,
+            "IoT Sensor 2-5",
+            DeviceType.IOT_SENSOR,
+            site2.id,
+            "10.2.5.10",
+            {
+                "os": "embedded",
+                "push_platform": "mqtt",
+                "agent_version": "1.0.0-iot",
+                "version": "1.0.0",
+            },
+            capabilities=_iot_caps,
+            device_permissions=_iot_perms,
+        )
+        await session.commit()
+
+    # --- DEVICE LIFECYCLE INITIALIZATION ---
+    print("\n=== Initializing Device Lifecycle ===")
+    async with db_service.get_session() as session:
+        result = await session.execute(select(Device))
+        all_devices = list(result.scalars().all())
+        for dev in all_devices:
+            epoch = await create_lifecycle_epoch(
+                session,
+                device_id=dev.id,
+                site_id=dev.site_id,
+                claimed_at=dev.created_at,
+                enrolment_method=dev.enrollment_method or "pre-provisioned",
+            )
+            await session.refresh(epoch)
+            dev.lifecycle_epoch_id = epoch.id
+            dev.health_state = HealthState.UNKNOWN.value
+            await create_device_lifecycle_event(
+                session,
+                device_id=dev.id,
+                epoch_id=epoch.id,
+                from_state=None,
+                to_state=LifecycleState.PENDING.value,
+                reason="Initial seed data creation",
+            )
+        await session.commit()
+        print(f"Initialized lifecycle for {len(all_devices)} devices")
+
+    # --- SAMPLE DATA ---
+    print("\n=== Creating Sample Data ===")
+    async with db_service.get_session() as session:
+        # Get first device
+        result = await session.execute(select(Device).limit(1))
+        first_device = result.scalar_one()
+
+        # Derive the provenance class once so every seeded analytics row
+        # carries a valid provenance snapshot (EQ-01 coverage).
+        first_device_prov = derive_provenance(first_device)
+        prov = first_device_prov.value if first_device_prov else None
+
+        # Sample Job
+        result = await session.execute(
+            select(Job).where(Job.job_id == "job-sample-001")
+        )
+        if not result.scalar_one_or_none():
+            sample_job = await create_job(
+                session,
+                job_id="job-sample-001",
+                action="Update POS payment config",
+                description="Sample job for schema validation",
+                site_id=sites[0].id,
+                device_id=first_device.id,
+                payload={"config_version": "1.0.0"},
+                created_by=admin_user.id,
+                status=JobStatus.COMPLETED,
+                completed_at=datetime.now(timezone.utc).replace(tzinfo=None),
+            )
+            await session.commit()
+            await session.refresh(sample_job)
+            print("Created sample job")
+
+            # Sample Health Check
+            await create_health_check(
+                session,
+                device_id=first_device.id,
+                is_healthy=True,
+                response_time_ms=45,
+                status_code=200,
+                endpoint="/health",
+                id=1,
+            )
+
+            # Sample Audit Log
+            await create_audit_log(
+                session,
+                event_type="job_created",
+                description=f"Job {sample_job.job_id} created for site {sites[0].site_id}",
+                user_id=admin_user.id,
+                job_id=sample_job.id,
+                device_id=first_device.id,
+                site_id=sites[0].id,
+                event_metadata={"action": "Update POS payment config"},
+            )
+
+            # Sample Analytics
+            session.add(
+                APIRequestLog(
+                    endpoint=f"/api/v1/sites/{sites[0].site_id}/jobs",
+                    method="POST",
+                    status_code=200,
+                    response_time_ms=125.5,
+                    user_id=str(admin_user.id),
+                    ip_address="192.168.1.100",
+                    user_agent="HOMEPOT-Client/1.0",
+                )
+            )
+
+            session.add(
+                UserActivity(
+                    user_id=str(admin_user.id),
+                    activity_type="page_view",
+                    page_url=f"/dashboard/sites/{sites[0].site_id}",
+                    duration_ms=3500,
+                    extra_data={"action": "viewed_job_list"},
+                )
+            )
+
+            session.add(
+                DeviceStateHistory(
+                    device_id=first_device.id,
+                    previous_state="offline",
+                    new_state="online",
+                    changed_by="system",
+                    reason="Device came online after reboot",
+                    provenance=prov,
+                )
+            )
+
+            session.add(
+                JobOutcome(
+                    job_id=sample_job.job_id,
+                    job_type="config_update",
+                    device_id=first_device.device_id,
+                    status="success",
+                    duration_ms=2340,
+                    initiated_by=str(admin_user.id),
+                    extra_data={"config_applied": True, "restart_required": False},
+                )
+            )
+
+            session.add(
+                ErrorLog(
+                    category="validation",
+                    severity="warning",
+                    error_code="VAL001",
+                    error_message="Invalid configuration parameter detected",
+                    stack_trace="Traceback (most recent call last):\n  File example.py line 42",
+                    endpoint="/api/v1/config/validate",
+                    user_id=str(admin_user.id),
+                    context={"param": "invalid_value", "expected": "integer"},
+                )
+            )
+
+            # Generate historical metrics
+            historical_metrics = generate_historical_metrics(
+                first_device.id, provenance=prov
+            )
+            session.add_all(historical_metrics)
+
+            # Generate historical errors
+            historical_errors = generate_historical_errors(
+                first_device.device_id, str(admin_user.id)
+            )
+            session.add_all(historical_errors)
+
+            # Generate active alerts (New for AI Context testing)
+            # Only generate for the first device to guarantee we have a test case
+            print(f"  -> Injecting critical alerts and metrics for {first_device.name}")
+
+            # 1. Add the alerts
+            active_alerts = generate_active_alerts(first_device.device_id, sites[0].id)
+            session.add_all(active_alerts)
+
+            # 2. Add the supporting data (High CPU metrics)
+            problem_metrics = generate_problematic_metrics(
+                first_device.id, provenance=prov
+            )
+            session.add_all(problem_metrics)
+
+            # Generate historical user activity
+            historical_activity = generate_historical_user_activity(str(admin_user.id))
+            session.add_all(historical_activity)
+
+            session.add(
+                ConfigurationHistory(
+                    entity_type="device",
+                    entity_id=first_device.device_id,
+                    parameter_name="max_connections",
+                    old_value={"value": 10},
+                    new_value={"value": 15},
+                    changed_by=str(admin_user.id),
+                    change_reason="Increased load during peak hours",
+                    change_type="manual",
+                    performance_before={"status": "degraded", "response_time_ms": 145},
+                    performance_after={"status": "healthy", "response_time_ms": 98},
+                    was_successful=True,
+                    was_rolled_back=False,
+                    provenance=prov,
+                    timestamp=datetime.now(timezone.utc).replace(tzinfo=None)
+                    - timedelta(hours=2),
+                )
+            )
+
+            session.add(
+                PushNotificationLog(
+                    message_id="msg-001",
+                    # device_id removed from model
+                    job_id=sample_job.job_id,
+                    provider="fcm",
+                    status="delivered",
+                    latency_ms=150,
+                    sent_at=datetime.now(timezone.utc).replace(tzinfo=None)
+                    - timedelta(minutes=5),
+                    received_at=datetime.now(timezone.utc).replace(tzinfo=None)
+                    - timedelta(minutes=5)
+                    + timedelta(milliseconds=150),
+                )
+            )
+
+            await session.commit()
+            print("Created sample analytics data")
+
+    # --- ENROLMENT INTENTS ---
+    print("\n=== Creating Enrolment Intents ===")
+    async with db_service.get_session() as session:
+        site1 = await session.execute(select(Site).where(Site.site_id == site1_id))
+        site1 = site1.scalar_one()
+
+        site2 = await session.execute(select(Site).where(Site.site_id == site2_id))
+        site2 = site2.scalar_one()
+
+        admin_user = await session.execute(
+            select(User).where(User.username == "homepot_admin")
+        )
+        admin_user = admin_user.scalar_one()
+
+        now = datetime.now(timezone.utc)
+
+        intents_data = [
+            # site-001 intents
+            dict(
+                site_id=site1.id,
+                tenant_id=site1.tenant_id,
+                enrolment_method="pre-provisioned",
+                expires_at=now + timedelta(hours=48),
+                creator_id=admin_user.id,
+                status=EnrolmentIntentStatus.PENDING.value,
+                expected_device_identity="SN-LNX-001",
+            ),
+            dict(
+                site_id=site1.id,
+                tenant_id=site1.tenant_id,
+                enrolment_method="pre-provisioned",
+                expires_at=now + timedelta(hours=72),
+                creator_id=admin_user.id,
+                status=EnrolmentIntentStatus.APPROVED.value,
+                expected_device_identity="SN-LNX-002",
+            ),
+            dict(
+                site_id=site1.id,
+                tenant_id=site1.tenant_id,
+                enrolment_method="pre-provisioned",
+                expires_at=now + timedelta(hours=24),
+                creator_id=admin_user.id,
+                status=EnrolmentIntentStatus.CONSUMED.value,
+                consumed_at=now - timedelta(hours=2),
+                expected_device_identity="SN-LNX-003",
+            ),
+            dict(
+                site_id=site1.id,
+                tenant_id=site1.tenant_id,
+                enrolment_method="self-enrolled",
+                expires_at=now - timedelta(days=7),
+                creator_id=admin_user.id,
+                status=EnrolmentIntentStatus.EXPIRED.value,
+            ),
+            # site-002 intents
+            dict(
+                site_id=site2.id,
+                tenant_id=site2.tenant_id,
+                enrolment_method="pre-provisioned",
+                expires_at=now + timedelta(hours=48),
+                creator_id=admin_user.id,
+                status=EnrolmentIntentStatus.REJECTED.value,
+            ),
+            dict(
+                site_id=site2.id,
+                tenant_id=site2.tenant_id,
+                enrolment_method="pre-provisioned",
+                expires_at=now + timedelta(hours=12),
+                creator_id=admin_user.id,
+                status=EnrolmentIntentStatus.REVOKED.value,
+            ),
+        ]
+
+        for data in intents_data:
+            claim_token = secrets.token_urlsafe(32)
+            claim_token_hash = pwd_context.hash(claim_token)
+            intent = await create_enrolment_intent(
+                session,
+                claim_token_hash=claim_token_hash,
+                **data,
+            )
+            print(
+                f"  {intent.intent_id}: {data['status']:>8} | {data['enrolment_method']:>15} | "
+                f"{site1.site_id if data['site_id'] == site1.id else site2.site_id}"
+            )
+
+        await session.commit()
+        print(f"Created {len(intents_data)} enrolment intents")
+
+    # --- SCHEDULES ---
+    print("\n=== Creating Operating Schedules ===")
+
+    weekly_schedule = [
+        {
+            "day": 0,
+            "open": dt_time(8, 0),
+            "close": dt_time(22, 0),
+            "closed": False,
+            "maint": False,
+            "vol": 500,
+            "peak_start": dt_time(12, 0),
+            "peak_end": dt_time(14, 0),
+            "notes": "Regular weekday - high traffic",
+        },
+        {
+            "day": 1,
+            "open": dt_time(8, 0),
+            "close": dt_time(22, 0),
+            "closed": False,
+            "maint": False,
+            "vol": 450,
+            "peak_start": dt_time(12, 0),
+            "peak_end": dt_time(14, 0),
+            "notes": "Regular weekday",
+        },
+        {
+            "day": 2,
+            "open": dt_time(8, 0),
+            "close": dt_time(22, 0),
+            "closed": False,
+            "maint": True,
+            "vol": 420,
+            "peak_start": dt_time(12, 0),
+            "peak_end": dt_time(14, 0),
+            "notes": "Maintenance 2-4 AM",
+        },
+        {
+            "day": 3,
+            "open": dt_time(8, 0),
+            "close": dt_time(23, 0),
+            "closed": False,
+            "maint": False,
+            "vol": 550,
+            "peak_start": dt_time(17, 0),
+            "peak_end": dt_time(20, 0),
+            "notes": "Late night shopping",
+        },
+        {
+            "day": 4,
+            "open": dt_time(8, 0),
+            "close": dt_time(23, 30),
+            "closed": False,
+            "maint": False,
+            "vol": 700,
+            "peak_start": dt_time(16, 0),
+            "peak_end": dt_time(21, 0),
+            "notes": "Busiest day",
+        },
+        {
+            "day": 5,
+            "open": dt_time(9, 0),
+            "close": dt_time(23, 0),
+            "closed": False,
+            "maint": False,
+            "vol": 650,
+            "peak_start": dt_time(11, 0),
+            "peak_end": dt_time(16, 0),
+            "notes": "Weekend traffic",
+        },
+        {
+            "day": 6,
+            "open": dt_time(10, 0),
+            "close": dt_time(18, 0),
+            "closed": False,
+            "maint": True,
+            "vol": 200,
+            "peak_start": dt_time(12, 0),
+            "peak_end": dt_time(14, 0),
+            "notes": "Sunday reduced hours",
+        },
+    ]
+
+    async with db_service.get_session() as session:
+        for sched in weekly_schedule:
+            result = await session.execute(
+                select(SiteOperatingSchedule).where(
+                    SiteOperatingSchedule.site_id == sites[0].id,
+                    SiteOperatingSchedule.day_of_week == sched["day"],
+                )
+            )
+            existing = result.scalar_one_or_none()
+
+            if not existing:
+                new_sched = SiteOperatingSchedule(
+                    site_id=sites[0].id,
+                    day_of_week=sched["day"],
+                    open_time=sched["open"],
+                    close_time=sched["close"],
+                    is_closed=sched["closed"],
+                    is_maintenance_window=sched["maint"],
+                    expected_transaction_volume=sched["vol"],
+                    peak_hours_start=sched["peak_start"],
+                    peak_hours_end=sched["peak_end"],
+                    notes=sched["notes"],
+                )
+                session.add(new_sched)
+
+        await session.commit()
+        print(f"Created weekly operating schedules for {sites[0].site_id}")
+
+    print("\n" + "=" * 50)
+    print("DATABASE SEEDING COMPLETE")
+    print("=" * 50)
+
+    await db_service.close()
+
+
+if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description="Initialize the HOMEPOT database schema and optional demo data."
+    )
+    parser.add_argument(
+        "--schema-only",
+        action="store_true",
+        help="Create the schema and the admin user only (no demo/simulated data)",
+    )
+    args = parser.parse_args()
+    asyncio.run(init_database(schema_only=args.schema_only))

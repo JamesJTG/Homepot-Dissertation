@@ -1,0 +1,770 @@
+# Analytics Data Collection
+
+This document explains what data HOMEPOT collects for AI integration and where it's stored.
+
+## Overview
+
+HOMEPOT Client automatically collects operational data to enable AI-powered insights and recommendations. The system uses 8 PostgreSQL tables to store different types of analytics data:
+
+- **5 operational analytics tables**: API requests, device states, job outcomes, errors, user activities
+- **3 AI-focused tables**: Device metrics, configuration history, site schedules
+
+**Current Status:** (Verified Dec 18, 2025)
+- Database tables created (all 8 tables, verified in PostgreSQL)
+- API request logging (automatic via middleware, **123 rows actively collecting**)
+- Frontend user activity tracking (fully implemented in 6+ pages with analytics.js)
+- Analytics API endpoints (10 endpoints ready and tested)
+- Device performance metrics collection (needs periodic background task)
+- Configuration change tracking (needs integration in config endpoints)
+- Site operating schedules (needs admin interface or manual setup)
+- Device state tracking (needs integration in device management)
+- Job outcome tracking (needs integration in job execution)
+- Error logging (frontend integrated, needs backend exception handlers)
+
+---
+
+## 1. API Request Logs
+
+**Table:** `api_request_logs`  
+**Collection Status:** Automatic (AnalyticsMiddleware active)
+
+### What It Stores
+
+Every API request made to the backend is automatically logged with:
+
+- `timestamp`: When the API was called
+- `endpoint`: API path (e.g., `/api/v1/devices`, `/api/v1/sites`)
+- `method`: HTTP method (GET, POST, PUT, DELETE)
+- `status_code`: Response code (200, 404, 500, etc.)
+- `response_time_ms`: How long the request took
+- `user_id`: Who made the request
+- `ip_address`: Client IP address
+- `user_agent`: Browser/client information
+- `error_message`: Error details if request failed
+- `request_size_bytes`: Request payload size
+- `response_size_bytes`: Response payload size
+
+### Example Data
+
+```
+timestamp           | endpoint          | method | status | time  | user_id
+--------------------|-------------------|--------|--------|-------|----------
+2025-12-05 13:45:23 | /api/v1/devices   | GET    | 200    | 45ms  | user123
+2025-12-05 13:46:10 | /api/v1/sites     | GET    | 200    | 32ms  | user123
+2025-12-05 13:47:05 | /api/v1/devices/1 | PUT    | 200    | 89ms  | user456
+2025-12-05 13:48:00 | /api/v1/auth      | POST   | 401    | 12ms  | null
+```
+
+### Use Cases for AI
+
+- Identify most-used endpoints
+- Detect performance bottlenecks
+- Pattern recognition for user workflows
+- Predict API failures
+
+---
+
+## 2. Device State History
+
+**Table:** `device_state_history`  
+**Collection Status:** Needs manual logging in backend code
+
+### What It Stores
+
+Tracks every device state change with:
+
+- `timestamp`: When the state changed
+- `device_id`: Device identifier
+- `previous_state`: State before change (e.g., "online", "offline")
+- `new_state`: State after change
+- `changed_by`: User ID or "system"
+- `reason`: Why the change happened
+- `extra_data`: Additional JSON context
+
+### Example Data
+
+```
+timestamp           | device_id | previous | new     | changed_by | reason
+--------------------|-----------|----------|---------|------------|------------------
+2025-12-05 14:00:00 | dev_001   | online   | offline | user123    | Maintenance
+2025-12-05 14:15:00 | dev_001   | offline  | online  | system     | Auto-recovery
+2025-12-05 14:30:00 | dev_002   | idle     | active  | user456    | Manual trigger
+```
+
+### Use Cases for AI
+
+- Predict device failures
+- Identify maintenance patterns
+- Recommend optimal maintenance schedules
+- Detect anomalous state transitions
+
+### Implementation Required
+
+Add logging calls in your device management code:
+
+```python
+from homepot.app.models.AnalyticsModel import DeviceStateHistory
+
+# When device state changes
+db.add(DeviceStateHistory(
+    device_id=device.device_id,
+    previous_state="online",
+    new_state="offline",
+    changed_by=current_user.id,
+    reason="User-initiated maintenance"
+))
+db.commit()
+```
+
+---
+
+## 3. Job Outcomes
+
+**Table:** `job_outcomes`  
+**Collection Status:** Needs manual logging in job execution code
+
+### What It Stores
+
+Tracks execution results of jobs (firmware updates, config changes, etc.):
+
+- `timestamp`: When the job completed
+- `job_id`: Unique job identifier
+- `job_type`: Type of job (e.g., "firmware_update", "restart")
+- `device_id`: Target device
+- `status`: success, failed, timeout, cancelled
+- `duration_ms`: How long the job took
+- `error_code`: Error code if failed
+- `error_message`: Error details
+- `retry_count`: Number of retry attempts
+- `initiated_by`: User who started the job
+- `extra_data`: Additional JSON context
+
+### Example Data
+
+```
+timestamp           | job_id  | job_type        | device  | status  | duration | error
+--------------------|---------|-----------------|---------|---------|----------|-------
+2025-12-05 14:15:00 | job_456 | firmware_update | dev_001 | success | 3500ms   | null
+2025-12-05 14:20:00 | job_457 | restart         | dev_002 | success | 1200ms   | null
+2025-12-05 14:25:00 | job_458 | config_change   | dev_003 | failed  | 5000ms   | E_TIMEOUT
+```
+
+### Use Cases for AI
+
+- Predict job success rates
+- Identify failure patterns
+- Recommend optimal job scheduling
+- Estimate job completion times
+
+### Implementation Required
+
+Add logging in your job execution logic:
+
+```python
+from homepot.app.models.AnalyticsModel import JobOutcome
+
+# After job completion
+db.add(JobOutcome(
+    job_id=job.id,
+    job_type="firmware_update",
+    device_id=device.id,
+    status="success",
+    duration_ms=duration,
+    initiated_by=current_user.id
+))
+db.commit()
+```
+
+---
+
+## 4. Error Logs
+
+**Table:** `error_logs`  
+**Collection Status:** Implemented (Dec 18, 2025)
+
+### What It Stores
+
+Categorized error tracking for system health:
+
+- `timestamp`: When the error occurred
+- `category`: api, database, external_service, validation
+- `severity`: critical, error, warning, info
+- `error_code`: Error code (e.g., "E_DB_TIMEOUT")
+- `error_message`: Human-readable error description
+- `stack_trace`: Full stack trace for debugging
+- `endpoint`: API endpoint if applicable
+- `user_id`: User affected by error
+- `device_id`: Device related to error
+- `context`: Additional JSON context
+- `resolved`: Whether error is resolved
+- `resolved_at`: Resolution timestamp
+
+### Implementation Details
+
+**Files Modified:**
+- `backend/src/homepot/error_logger.py` - Centralized error logging utility
+- `backend/src/homepot/agents.py` - 7 exception handlers
+- `backend/src/homepot/orchestrator.py` - 6 exception handlers
+- `backend/src/homepot/app/api/API_v1/Endpoints/SitesEndpoint.py` - 3 exception handlers
+
+**Error Categories:**
+- **api**: API request failures, validation errors
+- **database**: Database connection/query failures
+- **external_service**: Agent errors, job processing failures, push notification errors
+- **validation**: Configuration validation warnings
+
+**Error Severity Levels:**
+- **critical**: Job processing failures, payment gateway timeouts
+- **error**: Database failures, API errors, device errors
+- **warning**: Health check loop errors, device monitor errors, validation warnings
+- **info**: Configuration warnings, non-critical validations
+
+### Example Data
+
+```
+timestamp           | category          | severity | error_code         | message                          | device_id
+--------------------|-------------------|----------|--------------------|----------------------------------|-------------------
+2025-12-18 16:22:00 | external_service  | critical | EXT_SERVICE_TIMEOUT| Payment gateway timeout          | pos-terminal-001
+2025-12-18 16:22:00 | database          | error    | DB_CONN_001        | Database connection failed       | null
+2025-12-18 16:22:00 | api               | warning  | API_VALIDATION_001 | Invalid parameter in request     | null
+2025-12-18 16:22:00 | validation        | info     | CONFIG_VAL_001     | Configuration validation warning | null
+```
+
+### Use Cases for AI
+
+- Predict system failures before they occur
+- Identify recurring error patterns by category
+- Recommend preventive actions based on error history
+- Prioritize critical issues based on severity
+- Correlate device errors with maintenance schedules
+- Analyze failure rates by time of day/week
+
+### Verification
+
+Tested with simulated errors:
+- Database connection failures logged correctly
+- API validation errors captured with context
+- External service timeouts logged with stack traces
+- Configuration warnings stored as info level
+- Error context includes exception type and relevant data
+- Stack traces captured for debugging
+
+### Implementation Reference
+
+Use the centralized error logger in exception handlers:
+
+```python
+from homepot.error_logger import log_error
+
+try:
+    # Your code
+    pass
+except Exception as e:
+    await log_error(
+        category="database",
+        severity="error",
+        error_code="DB_CONN_001",
+        error_message="Database connection failed",
+        exception=e,  # Automatically extracts stack trace
+        endpoint="/api/v1/example" if request else None,
+        user_id=current_user.id if current_user else None,
+        device_id=device_id if device_id else None,
+        context={"additional": "context", "data": "here"}
+    )
+    db.commit()
+    raise
+```
+
+---
+
+## 5. User Activities
+
+**Table:** `user_activities`  
+**Collection Status:** Needs frontend implementation
+
+### What It Stores
+
+Tracks user interactions in the frontend:
+
+- `timestamp`: When the activity occurred
+- `user_id`: User identifier
+- `session_id`: Browser session ID
+- `activity_type`: page_view, click, search, form_submit, etc.
+- `page_url`: Current page URL
+- `element_id`: HTML element ID clicked
+- `search_query`: Search terms entered
+- `extra_data`: Additional JSON context
+- `duration_ms`: Time spent on page/activity
+
+### Example Data
+
+```
+timestamp           | user_id | activity    | page_url  | element_id         | search_query
+--------------------|---------|-------------|-----------|--------------------|--------------
+2025-12-05 14:45:00 | user123 | page_view   | /devices  | null               | null
+2025-12-05 14:45:15 | user123 | click       | /devices  | add-device-button  | null
+2025-12-05 14:46:00 | user123 | search      | /devices  | device-search      | temperature
+2025-12-05 14:47:00 | user123 | form_submit | /devices  | device-form        | null
+```
+
+### Use Cases for AI
+
+- Understand user behavior patterns
+- Identify unused features
+- Recommend UI improvements
+- Personalize user experience
+
+### Implementation Required
+
+Frontend developers need to add tracking calls. See [Frontend Analytics Integration](frontend-analytics-integration.md) for details.
+
+---
+
+## 6. Device Performance Metrics
+
+**Table:** `device_metrics`  
+**Collection Status:** Agent telemetry (real agent default: every 30 seconds)
+
+### What It Stores
+
+Tracks device performance metrics over time for predictive maintenance and optimization:
+
+- `timestamp`: When metrics were collected
+- `device_id`: Device identifier
+- `cpu_percent`: CPU usage percentage
+- `memory_percent`: Memory usage percentage
+- `disk_percent`: Disk usage percentage
+- `network_latency_ms`: Network latency in milliseconds
+- `collection_interval_seconds`: Agent-reported interval between samples (snapshotted)
+- `transaction_count`: Number of transactions processed
+- `transaction_volume`: Dollar amount of transactions
+- `error_rate`: Error rate percentage
+- `active_connections`: Number of active connections
+- `queue_depth`: Number of queued items
+- `extra_metrics`: Additional JSON metrics
+- `provenance`: Evidence class snapshotted at write time (`real`, `controlled`, or `simulated`)
+
+### Example Data
+
+```
+timestamp           | device_id | cpu% | mem% | disk% | trans | error_rate
+--------------------|-----------|------|------|-------|-------|------------
+2025-12-11 14:00:00 | dev_001   | 45.2 | 62.8 | 38.5  | 156   | 0.64
+2025-12-11 14:05:00 | dev_001   | 48.1 | 65.2 | 38.6  | 162   | 0.71
+2025-12-11 14:10:00 | dev_001   | 52.3 | 68.5 | 38.7  | 178   | 0.85
+```
+
+### Use Cases for AI
+
+- Predict device performance degradation
+- Identify resource bottlenecks before they cause issues
+- Recommend hardware upgrades based on usage patterns
+- Correlate performance with transaction volume
+- Detect anomalous behavior patterns
+
+### Implementation Required
+
+Add periodic metrics collection (e.g., in a background task):
+
+```python
+from homepot.app.models.AnalyticsModel import DeviceMetrics
+
+# Real agent default: every 30 seconds
+async def collect_device_metrics(device_id: str):
+    metrics = await get_device_performance(device_id)
+    
+    db.add(DeviceMetrics(
+        device_id=device_id,
+        cpu_percent=metrics.cpu,
+        memory_percent=metrics.memory,
+        disk_percent=metrics.disk,
+        network_latency_ms=metrics.latency,
+        transaction_count=metrics.transactions,
+        transaction_volume=metrics.volume,
+        error_rate=metrics.error_rate
+    ))
+    await db.commit()
+```
+
+---
+
+## 7. Configuration History
+
+**Table:** `configuration_history`  
+**Collection Status:** Implemented (Dec 18, 2025)
+
+### What It Stores
+
+Tracks configuration changes and their impact for AI learning:
+
+- `timestamp`: When configuration was changed
+- `entity_type`: Type of entity (device, site, system)
+- `entity_id`: Identifier of the entity
+- `parameter_name`: Name of the parameter changed
+- `old_value`: Previous value (JSON)
+- `new_value`: New value (JSON)
+- `changed_by`: User who made the change
+- `change_reason`: Why the change was made
+- `change_type`: manual, automated, ai_recommended
+- `performance_before`: Performance metrics before change (JSON)
+- `performance_after`: Performance metrics after change (JSON)
+- `was_successful`: Whether change achieved desired result
+- `was_rolled_back`: Whether change was reverted
+- `rollback_reason`: Why it was rolled back
+- `rollback_success`: Whether the rollback restored the baseline
+- `rollback_performance`: Performance metrics after rollback (JSON)
+- `rolled_back_at`: Timestamp of the rollback
+- `provenance`: Evidence class snapshotted at write time (`real`, `controlled`, or `simulated`)
+
+### Implementation Details
+
+**Files Modified:**
+- `backend/src/homepot/agents.py` - Logs device-level config changes after successful updates
+- `backend/src/homepot/app/api/API_v1/Endpoints/JobsEndpoints.py` - Logs site-level config update jobs
+
+**Entity Types:**
+- **device**: Individual POS terminal config updates (config_version, URL)
+- **site**: Site-wide config update jobs
+- **system**: System-level configuration (future)
+
+**Change Types:**
+- **automated**: Config changes pushed via orchestrator/push notifications
+- **manual**: Config jobs created by API users
+- **ai_recommended**: AI-suggested configurations (future)
+
+### Example Data
+
+```
+timestamp           | entity  | entity_id        | parameter       | old_value                    | new_value                                      | changed_by | change_type
+--------------------|---------|------------------|-----------------|------------------------------|------------------------------------------------|------------|-------------
+2025-12-18 16:41:27 | device  | pos-terminal-005 | config_version  | {"version": "1.0.0"}         | {"version": "2.6.0", "url": "https://..."}     | system     | automated
+2025-12-18 16:41:21 | device  | pos-terminal-002 | config_version  | {"version": "1.0.0"}         | {"version": "2.6.0", "url": "https://..."}     | system     | automated
+2025-12-18 16:41:13 | device  | pos-terminal-003 | config_version  | {"version": "1.0.0"}         | {"version": "2.6.0", "url": "https://..."}     | system     | automated
+```
+
+### Use Cases for AI
+
+- Learn which configuration changes improve performance
+- Recommend optimal settings based on historical data
+- Identify failed configuration patterns to avoid
+- Predict impact of configuration changes before applying
+- Automatically suggest rollback for degraded performance
+- Correlate config changes with device metrics/errors
+- Identify which config versions have best stability
+
+### Verification
+
+Tested with job orchestrator creating config update jobs:
+- ✅ Device-level changes logged after successful config application
+- ✅ Old and new config versions captured
+- ✅ Performance metrics (status, response_time_ms) stored before change
+- ✅ Change reason and type properly categorized
+- ✅ 3 devices successfully logged config changes to v2.6.0
+
+### Implementation Reference
+
+Configuration history is automatically logged when:
+
+**1. Agents apply config updates:**
+```python
+from homepot.app.models.AnalyticsModel import ConfigurationHistory
+
+# In agents.py _handle_config_update()
+config_history = ConfigurationHistory(
+    timestamp=datetime.utcnow(),
+    entity_type="device",
+    entity_id=self.device_id,
+    parameter_name="config_version",
+    old_value={"version": old_version},
+    new_value={"version": config_version, "url": config_url},
+    changed_by="system",
+    change_reason="Push notification config update",
+    change_type="automated",
+    performance_before={
+        "status": health_result.get("status"),
+        "response_time_ms": health_result.get("response_time_ms"),
+    },
+)
+session.add(config_history)
+```
+
+**2. API jobs create config updates:**
+```python
+# In JobsEndpoints.py create_pos_config_job()
+config_history = ConfigurationHistory(
+    timestamp=datetime.utcnow(),
+    entity_type="site",
+    entity_id=site_id,
+    parameter_name="config_update_job",
+    old_value=None,
+    new_value={
+        "job_id": job_id,
+        "action": job_request.action,
+        "config_url": job_request.config_url,
+        "config_version": job_request.config_version,
+    },
+    changed_by="api_user",
+    change_reason=job_request.description,
+    change_type="manual",
+)
+session.add(config_history)
+```
+
+---
+
+## 8. Site Operating Schedules
+
+**Table:** `site_operating_schedules`  
+**Collection Status:** Needs manual configuration per site
+
+### What It Stores
+
+Defines site operating hours and maintenance windows for intelligent job scheduling:
+
+- `site_id`: Site identifier
+- `day_of_week`: Day (0=Monday, 6=Sunday)
+- `open_time`: Store opening time
+- `close_time`: Store closing time
+- `is_closed`: Whether site is closed (holiday, etc.)
+- `is_maintenance_window`: Whether maintenance is preferred
+- `expected_transaction_volume`: Expected number of transactions
+- `peak_hours_start`: Peak period start time
+- `peak_hours_end`: Peak period end time
+- `notes`: Additional notes
+- `special_considerations`: JSON with special rules
+
+### Example Data
+
+```
+site_id  | day | open_time | close_time | maintenance | peak_start | peak_end | trans_volume
+---------|-----|-----------|------------|-------------|------------|----------|-------------
+site_001 | 0   | 08:00:00  | 22:00:00   | false       | 12:00:00   | 14:00:00 | 500
+site_001 | 1   | 08:00:00  | 22:00:00   | false       | 12:00:00   | 14:00:00 | 550
+site_001 | 6   | 10:00:00  | 18:00:00   | true        | 13:00:00   | 15:00:00 | 200
+```
+
+### Use Cases for AI
+
+- Schedule maintenance jobs during low-traffic periods
+- Avoid disrupting operations during peak hours
+- Predict optimal times for firmware updates
+- Recommend maintenance windows based on traffic patterns
+- Alert when maintenance is overdue
+
+### Implementation Required
+
+Configure schedules through admin interface or API:
+
+```python
+from homepot.app.models.AnalyticsModel import SiteOperatingSchedule
+from datetime import time
+
+# Monday schedule
+db.add(SiteOperatingSchedule(
+    site_id="site_001",
+    day_of_week=0,  # Monday
+    open_time=time(8, 0),
+    close_time=time(22, 0),
+    is_maintenance_window=False,
+    expected_transaction_volume=500,
+    peak_hours_start=time(12, 0),
+    peak_hours_end=time(14, 0),
+    notes="Regular business day"
+))
+
+# Sunday - preferred maintenance
+db.add(SiteOperatingSchedule(
+    site_id="site_001",
+    day_of_week=6,  # Sunday
+    open_time=time(10, 0),
+    close_time=time(18, 0),
+    is_maintenance_window=True,
+    expected_transaction_volume=200,
+    peak_hours_start=time(13, 0),
+    peak_hours_end=time(15, 0),
+    notes="Preferred maintenance window: 6am-9am"
+))
+await db.commit()
+```
+
+---
+
+## Query Endpoints
+
+The backend provides API endpoints to query collected analytics data:
+
+- `GET /api/v1/analytics/requests` - Query API request logs
+- `GET /api/v1/analytics/device-states` - Query device state history
+- `GET /api/v1/analytics/jobs` - Query job outcomes
+- `GET /api/v1/analytics/errors` - Query error logs
+- `GET /api/v1/analytics/user-activities` - Query user activities
+- `GET /api/v1/analytics/device-metrics` - Query device performance metrics
+- `GET /api/v1/analytics/config-history` - Query configuration changes
+- `GET /api/v1/analytics/site-schedules` - Query site operating schedules
+
+All endpoints support filtering by:
+- `start_date` / `end_date`: Time range
+- Additional filters specific to each endpoint
+
+Example:
+```bash
+curl "http://localhost:8000/api/v1/analytics/requests?start_date=2025-12-01&end_date=2025-12-05"
+curl "http://localhost:8000/api/v1/analytics/device-metrics?device_id=dev_001&start_date=2025-12-11"
+```
+
+## Command-Line Query Tool
+
+Use the query-db.sh script to inspect analytics data:
+
+```bash
+# Show counts for all tables
+./scripts/query-db.sh count
+
+# Query specific analytics tables
+./scripts/query-db.sh api_request_logs
+./scripts/query-db.sh device_state_history
+./scripts/query-db.sh job_outcomes
+./scripts/query-db.sh error_logs
+./scripts/query-db.sh user_activities
+
+# Query AI-focused tables
+./scripts/query-db.sh device_metrics
+./scripts/query-db.sh configuration_history
+./scripts/query-db.sh site_operating_schedules
+```
+
+---
+
+## Database Setup
+
+All analytics tables are created automatically when you initialize the database:
+
+```bash
+./scripts/init-postgresql.sh
+```
+
+This creates:
+- 6 core tables (sites, devices, users, jobs, health_checks, audit_logs)
+- 5 analytics tables (api_request_logs, user_activities, device_state_history, job_outcomes, error_logs)
+- 3 AI-focused tables (device_metrics, configuration_history, site_operating_schedules)
+
+**Total: 14 tables** with sample data for each.
+
+The script is idempotent - safe to run multiple times.
+
+---
+
+## Testing the System
+
+Validate that analytics collection is working:
+
+```bash
+python backend/utils/demo_analytics.py
+```
+
+This will:
+1. Check that backend is running
+2. Generate test API calls
+3. Query analytics endpoints
+4. Display collected data summary
+
+---
+
+## Data Collection Timeline
+
+**Phase 1 (COMPLETE - Dec 18, 2025):**
+- API request logging (automatic, 123+ requests logged)
+- Database tables created (all 14 tables)
+- Sample data populated
+- Frontend analytics integrated (trackActivity, trackSearch, trackError)
+- Analytics API endpoints (10 endpoints ready)
+
+**Phase 2:**
+- Add device performance metrics collection (periodic background task)
+- Add configuration change logging to all config update endpoints
+- Add site operating schedules through admin interface
+- Add device state logging to backend device management
+- Add job outcome logging to backend job execution
+- Add error logging to backend exception handlers
+- Generate real user activity through application usage
+
+**Phase 3:**
+- Let system run for 3-5 days
+- Collect real usage patterns (target: 1000+ rows per table)
+- Validate data quality for all 8 analytics tables
+- Prepare for AI integration (Phase 3 of roadmap)
+
+---
+
+## Privacy & Security
+
+- All sensitive data (passwords, tokens) is excluded from logging
+- User IDs are anonymized for AI training
+- Data retention: 90 days (configurable)
+- Access restricted to admin users only
+
+---
+
+## Next Steps
+
+### Phase 2: Data Collection Implementation (In Progress)
+
+**Completed:**
+1. **Device Metrics Collection** (Implemented: Dec 18, 2025)
+   - Added automatic collection in agents.py _run_health_check()
+   - Collects CPU, memory, disk usage, and transaction counts
+   - Runs every 30 seconds for all 12 POS agents
+   - Stores in device_metrics table with proper TimescaleDB compatibility
+   - Verified: All 12 devices saving metrics successfully
+
+2. **Job Outcomes Logging** (Implemented: Dec 18, 2025)
+   - Added logging in orchestrator.py at all job completion points
+   - Captures job duration, status (success/failed/completed), and error messages
+   - Logs device counts, push notification results, and execution metadata
+   - Fixed site_id resolution for string-based security identifiers
+   - Verified: Successfully logging all 4 outcome scenarios (success, failed, exception, no devices)
+
+3. **Device State History** (Implemented: Dec 18, 2025)
+   - Added state transition tracking in agents.py health checks
+   - Logs state changes: online↔error↔offline↔maintenance
+   - Captures previous_state, new_state, reason, and changed_by
+   - Stores response time and health status in extra_data JSON
+   - Optimized: Only logs when state actually changes
+   - Verified: Successfully tracking transitions with descriptive reasons
+
+**Remaining Tasks:**
+4. **Error Logging**
+   - Add backend exception handlers to log errors
+   - Estimated time: 3 hours
+
+5. **Configuration History**
+   - Add hooks in config endpoints to track changes
+   - Estimated time: 3 hours
+
+### Original Next Steps
+
+1. **Backend Team:** 
+   - ~~Add periodic device metrics collection (every 5 minutes)~~ DONE (every 30s)
+   - Add configuration history logging to all config changes
+   - Add logging for device states, job outcomes, and errors
+   
+2. **Admin Team:**
+   - Configure site operating schedules for all locations
+   - Define maintenance windows
+   
+3. **Frontend Team:** 
+   - Implement user activity tracking
+   
+4. **DevOps:** 
+   - Run system for 3-5 days to collect real data
+   - Monitor database growth and performance
+   
+5. **AI Team:** 
+   - Review collected data from all 8 analytics tables
+   - Define training requirements
+   - Develop initial predictive models
+
+For implementation guides, see:
+- [Frontend Analytics Integration](frontend-analytics-integration.md)
+- [Backend Analytics Guide](backend-analytics.md)
+- [Fresh Database Setup](fresh-database-setup.md)

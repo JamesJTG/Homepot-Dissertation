@@ -1,0 +1,751 @@
+# Canonical Device Lifecycle and Ownership
+
+## Purpose
+
+This document defines the canonical device lifecycle and ownership contract for the HOMEPOT Dashboard/backend and HOMEPOT User App. It is the reference for API, database, user-interface, agent, simulation, and real-device development.
+
+The contract separates four concepts that must not be represented by one overloaded status:
+
+- **Identity:** which physical or virtual endpoint a record represents.
+- **Ownership and assignment:** which HOMEPOT scope may manage it.
+- **Lifecycle:** whether it is awaiting enrolment, managed, suspended, unpaired, or retired.
+- **Connectivity:** whether the backend has heard from it recently.
+
+This document defines the target contract. The implementation baseline distinguishes current behaviour from functionality that remains to be developed.
+
+## Canonical terms
+
+| Term            | Meaning                                                                                                                                                  |
+| --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Device          | A durable backend record representing one managed endpoint.                                                                                              |
+| Device identity | A stable, non-secret identifier bound to the endpoint. A display name, address, push token, or API key is not device identity.                           |
+| Site            | The operational scope to which a device is assigned.                                                                                                     |
+| Principal       | An authenticated human user, service, or device identity.                                                                                                |
+| Owner           | The tenant or organisation responsible for a site and its devices. Tenant ownership is a target capability and is not represented in the current schema. |
+| Assignment      | The relationship between a device and a site. Assignment alone is not proof of authorisation.                                                            |
+| Enrolment       | Establishing an authorised assignment and issuing device credentials.                                                                                    |
+| Pairing         | The active management relationship created by successful enrolment.                                                                                      |
+| Unpairing       | Revoking that relationship while retaining historical records.                                                                                           |
+| Retirement      | A terminal administrative decision that prevents ordinary reactivation.                                                                                  |
+| Lifecycle epoch | One enrolment-to-unpair-or-retire period. A new epoch requires new credentials and an auditable transition.                                              |
+
+## Source of truth
+
+The backend is authoritative for:
+
+- device identity;
+- ownership and site assignment;
+- lifecycle state;
+- credential issuance and revocation;
+- authorisation decisions; and
+- audit history.
+
+The Dashboard and User App consume and request changes to that state. They must not independently declare a backend lifecycle transition successful.
+
+| Component            | Responsibilities                                                                                                        | Must not be authoritative for                                                         |
+| -------------------- | ----------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| Dashboard            | Create enrolment intents and pre-provisioned records, display state, and request authorised administrative transitions. | Ownership or device state inferred only from browser state.                           |
+| Backend              | Authenticate principals, authorise scope, enforce transitions, issue and revoke credentials, and record audit events.   | Device-local facts not reported by an authenticated agent.                            |
+| User App/agent       | Bootstrap enrolment, retain credentials securely, report device DNA, heartbeat and telemetry, and request unpairing.    | Ownership, assignment, or successful lifecycle transitions based only on local state. |
+| Push provider or MDM | Deliver wake-up or management signals and report provider delivery status.                                              | HOMEPOT ownership, command completion, or lifecycle state.                            |
+
+Removing credentials from a device does not prove that the backend revoked them. If the backend cannot confirm unpairing, the User App may perform a local safety reset but must report it as **local reset; server revocation pending**.
+
+## Ownership model
+
+The target ownership hierarchy is:
+
+```text
+Tenant / organisation
+└── Site
+    └── Device assignment
+        └── Lifecycle epochs and retained operational history
+```
+
+### Ownership invariants
+
+1. Every active device assignment belongs to exactly one active site and one tenant or organisation.
+2. Human access is granted through tenant and site roles. Knowing a `site_id` or `device_id` does not grant access.
+3. A device credential grants access only as that device.
+4. A device cannot use its credentials to claim another device, change ownership, change site, or administer users.
+5. A device cannot have two active assignments.
+6. Transfer must be explicit, authorised, audited, and accompanied by credential rotation.
+7. Provider identifiers, network addresses and observed hardware attributes are aliases or metadata, not ownership.
+8. Historical telemetry and audit events retain the ownership scope and lifecycle epoch in which they were produced.
+9. Secrets are returned only when issued or rotated and are stored server-side only as hashes or verifiers.
+10. Enrolment tokens must be one-time, scoped, expiring, and consumed atomically.
+
+## Canonical roles
+
+Exact role names may evolve, but authorisation must support these capabilities:
+
+| Principal              | Minimum permitted scope                                                                 |
+| ---------------------- | --------------------------------------------------------------------------------------- |
+| Platform administrator | Manage tenants and perform explicitly audited support operations.                       |
+| Tenant administrator   | Manage sites, enrolment, assignments, commands and retirement within one tenant.        |
+| Site operator          | View and operate authorised sites. Destructive transitions require explicit permission. |
+| End user or installer  | Redeem an enrolment intent or request self-enrolment for an authorised site.            |
+| Device                 | Report and retrieve data only for its own active identity.                              |
+
+## Canonical lifecycle
+
+Lifecycle, connectivity and health are independent dimensions.
+
+### Lifecycle states
+
+| State       | Meaning                                                                                    | Credentials                                                           | Device operations                         |
+| ----------- | ------------------------------------------------------------------------------------------ | --------------------------------------------------------------------- | ----------------------------------------- |
+| `pending`   | An enrolment intent or pre-provisioned slot exists, but no endpoint has proved possession. | None                                                                  | Rejected                                  |
+| `active`    | Enrolment is complete and the management relationship is valid.                            | Valid                                                                 | Allowed when authenticated and authorised |
+| `suspended` | Management is temporarily disabled by an authorised operator or policy.                    | Retained or rotated according to policy, but rejected while suspended | Rejected                                  |
+| `unpaired`  | The management relationship has ended, while records are retained for audit and analytics. | Revoked                                                               | Rejected (can be resumed/re-activated)    |
+
+> `retired` was folded into `unpaired`. Both revoke credentials and hide the
+> device; permanent removal is provided by `purge`. The `retire` action remains
+> available as an alias for unpairing.
+
+`is_active` may remain as a compatibility field, but it must not form a second lifecycle model. Its mapping to canonical lifecycle states must be defined once and used consistently.
+
+### Connectivity states
+
+| State     | Meaning                                                                     |
+| --------- | --------------------------------------------------------------------------- |
+| `unknown` | No trustworthy heartbeat has been observed.                                 |
+| `online`  | The most recent authenticated heartbeat is within the configured threshold. |
+| `offline` | The device is active, but its heartbeat is absent or stale.                 |
+
+Connectivity must be computed from authenticated heartbeat information.
+
+`maintenance` and `error` are operational or health conditions. They are not connectivity, lifecycle, or ownership states.
+
+An unpaired device is not merely offline: it no longer has an active management relationship.
+
+## Allowed transitions
+
+| From                                | Event                         | To                                     | Required authority and effects                                                                                                   |
+| ----------------------------------- | ----------------------------- | -------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| `none`                              | Create pre-provisioned intent | `pending`                              | Tenant or site administrator; bind owner and site; issue one-time claim token.                                                   |
+| `none`                              | Authorised self-enrolment     | `active`                               | Authenticated installer authorised for the target site; atomically create identity, assignment, lifecycle epoch and credentials. |
+| `pending`                           | Claim                         | `active`                               | Verify and consume the token and device proof; issue credentials; audit actor and device.                                        |
+| `active`                            | Suspend                       | `suspended`                            | Authorised operator or policy; reject device operations and record the reason.                                                   |
+| `suspended`                         | Resume                        | `active`                               | Authorised operator or policy; rotate credentials if compromise is possible.                                                     |
+| `active` or `suspended`             | Unpair                        | `unpaired`                             | Authorised user or device flow; revoke credentials and provider channels; retain history.                                        |
+| `active`, `suspended` or `unpaired` | Retire (alias → unpair)       | `unpaired`                             | Tenant administrator; revoke credentials and prevent ordinary reactivation.                                                      |
+| `unpaired`                          | Re-enrol / resume             | `active` in a new epoch                | Repeat authorisation and device proof; retain the old epoch and issue new credentials.                                           |
+| `active` or `suspended`             | Transfer                      | `active` in a new assignment and epoch | Authorised at source and destination; revoke old credentials and retain historical ownership.                                    |
+
+Transitions must be idempotent or accept an idempotency key. Concurrent claim, unpair, transfer and credential-rotation operations must be transactionally serialised.
+
+## Enrolment paths
+
+### Pre-provisioned enrolment
+
+1. An authorised administrator creates a pending device record or enrolment intent for a tenant and site.
+2. The backend issues a short-lived, one-time claim token.
+3. The claim token is separate from the eventual device API credential.
+4. The User App or agent submits the claim token and stable device evidence.
+5. The backend verifies scope, token validity and identity uniqueness.
+6. The backend consumes the token atomically, starts the lifecycle epoch, and returns one-time credentials.
+7. The device stores those credentials using platform-secure storage and registers its device DNA.
+
+### Self-enrolment
+
+1. The user authenticates.
+2. The backend verifies that the user may enrol devices into the selected site.
+3. The backend atomically creates the device, assignment and lifecycle epoch.
+4. The backend returns one-time device credentials.
+5. The agent stores the credentials securely and reports its device DNA.
+
+A raw site ID and caller-provided `user_identity` are metadata, not proof of authorisation.
+
+## Unpairing and local reset
+
+Canonical unpairing is a backend lifecycle transition. It is not merely an HTTP `DELETE` convention or removal of browser storage.
+
+The target API should provide an explicit operation such as:
+
+```bash
+POST /devices/{device_id}/unpair
+```
+
+The request must include authentication, authorisation, an optional reason, and an idempotency key.
+
+### Successful unpairing requirements
+
+1. verify that the caller may unpair the device in its current ownership scope;
+2. mark the lifecycle epoch as unpaired and inactive;
+3. revoke API credentials, bootstrap tokens, push channels and active sessions;
+4. expire or cancel outstanding command leases;
+5. reject subsequent heartbeat, telemetry, command polling and command-result writes;
+6. retain the device record, assignment history, telemetry, outcomes and audit records;
+7. record the actor, reason, previous state, new state, timestamp and correlation ID; and
+8. return a structured result before the User App clears local credentials.
+
+Hard deletion is a separate data-governance operation and is outside ordinary device unpairing.
+
+### Delete modes map to lifecycle concepts
+
+The device `DELETE` endpoints (`DELETE /api/v1/devices/device/{id}`) use **archive / purge** modes that map to the lifecycle model above:
+
+- **`archive`** (default) — performs the **unpair** lifecycle transition: revokes credentials, expires outstanding commands, sets `lifecycle_state = 'unpaired'` and `is_active = false`, while **retaining all data**. Restorable by re-activating the device.
+- **`purge`** — the separate hard-deletion data-governance operation (requires `confirm=true`): permanently deletes the device row and all associated data.
+
+So "archive" is the `DELETE`-method alias for the `unpaired` lifecycle state; "purge" is the hard-deletion path that sits outside the lifecycle model (line above). Sites follow the same pattern (`DELETE /api/v1/sites/{id}?mode=archive|purge`), where archiving a site also archives its devices. These apply uniformly regardless of whether a device is simulated, emulated, or real.
+
+### User-initiated unpair and re-enrolment
+
+The **User App** lets the device owner unpair the device themselves
+(`POST /api/v1/devices/device/{id}/unpair`, device-authenticated). On unpair the
+device's credentials are revoked, the record is set `unpaired`/`inactive`, and
+the User App clears its local credentials and returns to the Setup wizard.
+
+Re-enrolling **with the same device name creates a fresh device** (new
+`device_id`) — unpaired/retired records are excluded from the name-availability
+check, so the user can re-pair immediately without waiting for a technician.
+This is the intended model: unpairing removes the device from management;
+re-enrolment is a new provisioning session.
+
+**Cleanup is a technician task.** Old unpaired records accumulate until the
+technician either:
+
+- **archives** them (`mode=archive`, default) — keeps the record + history for
+  audit, or
+- **purges** them (`mode=purge`, `confirm=true`) — permanently deletes the
+  device and all associated data.
+
+### Restore ("resume") semantics
+
+The restore endpoint (`POST /api/v1/devices/device/{id}/resume`) re-activates a
+**suspended or unpaired** device *record*: it sets `lifecycle_state = 'active'`,
+`is_active = true`, and `status = 'online'`, so the device reappears on the
+Dashboard.
+
+**Restore does NOT re-issue API credentials.** Unpairing/archiving clears
+`api_key_hash` and revokes all credentials; restore leaves them cleared. So a
+restored device record is visible and `active`, but the **device itself cannot
+reconnect** until it is provisioned again (a fresh bootstrap enrolment issues a
+new API key). Restore is for recovering the *record* (e.g. after an accidental
+archive), not for bringing a device back online on its own.
+
+## API representation
+
+Device responses should expose the independent state dimensions:
+
+```json
+{
+  "device_id": "device-stable-id",
+  "tenant_id": "tenant-123",
+  "site_id": "site-123",
+  "lifecycle_state": "active",
+  "connectivity_state": "online",
+  "health_state": "healthy",
+  "enrollment_method": "self-enrolled",
+  "lifecycle_epoch_id": "epoch-456",
+  "last_heartbeat_at": "2026-07-19T10:30:00Z"
+}
+```
+
+### Transition events
+
+Transition events should include:
+
+- event ID and type;
+- device and lifecycle epoch IDs;
+- tenant and site scope;
+- authenticated actor;
+- source component;
+- previous and new states;
+- reason;
+- correlation or idempotency key; and
+- UTC timestamp.
+
+Events must never include plaintext API keys, enrolment tokens, or provider secrets.
+
+## Implementation baseline
+
+At the time this document was introduced, the repository implements only part of the contract.
+
+### Implemented
+
+- Device has a globally unique `device_id`.
+- Every device has a required site foreign key.
+- The model includes `is_active`, `status`, `enrollment_method`, and a hashed API key.
+- Provisioning creates a device, returns a one-time plaintext API key, and stores its hash.
+- Device DNA, heartbeat, telemetry and pending-command reads authenticate using `X-Device-ID` and `X-API-Key`.
+- Database unpairing sets `is_active` to `false`.
+- Database unpairing sets `status` to `unpaired`.
+- Database unpairing removes the API-key hash while retaining the site relationship.
+- Database unpairing creates a `device_unpaired` audit row.
+- Normal site listings exclude inactive devices and may optionally include unpaired records.
+
+## Known gaps
+
+- There is no tenant or organisation entity.
+- There is no user-to-site membership or site-role model.
+- There is no explicit device owner, assignment history, or lifecycle epoch.
+- `status` mixes connectivity, lifecycle and health conditions.
+- Provisioning accepts `site_id` and caller-provided `user_identity` without user authentication or site authorisation.
+- General device administration and command queueing do not consistently require an authenticated, site-authorised user.
+- A matching `device_id` is currently enough to enter the pre-provisioned claim path.
+- Claim-token validation, expiry and atomic consumption are not enforced.
+- Provisioning does not consistently persist self-enrolled or an explicit lifecycle state.
+- The User App stores its API key in `sessionStorage`; real-device implementations require OS-protected storage.
+- The User App stores a device ID under the misleading key `homepot_token`.
+- The User App calls an unauthenticated `DELETE` operation during unpairing.
+- It does not reject unsuccessful HTTP responses and clears local state after network failure.
+- Unpairing does not yet revoke push-provider channels or expire outstanding commands and sessions.
+- Re-enrolment, transfer, suspension, retirement and concurrency rules are not represented.
+- Command-result ownership is checked after the update has been committed; ownership must be enforced before mutation.
+
+## Canonical state model
+PR 1: Separate lifecycle, connectivity, and health
+**Backend:**
+- Add explicit enums/fields:
+  - lifecycle_state: pending, active, suspended, unpaired, retired
+  - connectivity_state: computed as unknown, online, or offline
+  - health_state: for conditions such as healthy, warning, error, maintenance
+- Stop using the existing status field for all three dimensions.
+- Define a temporary migration mapping from existing values.
+- Centralise state transitions in a lifecycle service.
+- Prevent arbitrary endpoint code from changing lifecycle state directly.
+**Dashboard:**
+- Display lifecycle, connectivity, and health separately.
+- Exclude unpaired and retired devices from active fleet counts.
+- Do not describe an unpaired device as merely offline.
+**User App:**
+- Read the backend lifecycle state rather than inferring it from local storage.
+- Disable device operations when suspended, unpaired, or retired.
+**Tests:**
+- Database migration tests.
+- Allowed and rejected transition tests.
+- Dashboard/API representation tests.
+This should be the first code PR because every later security and real-device flow depends on these meanings.
+
+PR 2: Introduce tenant and site membership
+**Backend:**
+- Add Tenant or Organisation.
+- Assign every site to one tenant.
+- Add user-to-tenant/site membership and roles.
+- Migrate existing sites into a default tenant.
+- Define permissions for administrators, operators, installers, and devices.
+
+PR 3: Enforce ownership at API boundaries
+**Secure:**
+- device creation and listing;
+- device update and unpairing;
+- provisioning;
+- command creation;
+- site statistics;
+- telemetry and configuration access.
+Knowing a Site ID must not be sufficient to enrol or administer a device.
+**Important acceptance tests:**
+- User from tenant A cannot view or modify tenant B.
+- Site operator cannot act outside assigned sites.
+- Device credentials only operate on that same device.
+- Unauthenticated provisioning and unpairing are rejected.
+
+PR 5: Implement pre-provisioned claiming
+**Dashboard:**
+- Administrator creates a pending device/enrolment intent.
+- Display claim status and expiry.
+- Allow token revocation and regeneration.
+**User App:**
+- Accept the claim token.
+- Present stable device evidence.
+- Securely receive and store credentials.
+Backend:
+- Validate token hash, scope, expiry, and unused state.
+- Consume the token atomically.
+- Create the lifecycle epoch.
+- Issue the API key only once.
+- Reject duplicate and concurrent claims.
+
+### Enrolment Intent creation flow (UI walkthrough)
+
+When an administrator clicks **Create Intent** on the Site Detail page:
+
+1. **Form submission**: A `POST /sites/{site_id}/enrolment-intents` is sent with optional fields (`expected_device_identity`, `expires_in_hours`, `idempotency_key`). The backend requires `operator`-level access on the target site.
+
+2. **Backend processing** (`EnrolmentIntentsEndpoint.py`):
+   - Creates a DB record with `status = pending` and a random UUID `intent_id`.
+   - Generates a cryptographically random claim token, hashes it with bcrypt, and stores only the hash.
+   - Returns the **plaintext claim token exactly once** in the response.
+
+3. **UI response**:
+   - The create form collapses.
+   - The intents list refreshes automatically.
+   - A **yellow result card** appears at the top showing the claim token in a monospace block, with the warning: *"It will not be shown again."*
+   - The new row appears in the table with a yellow **Pending** badge.
+
+4. **Subsequent actions** (per-row action buttons):
+   | Button | Status required | Effect |
+   |--------|----------------|--------|
+   | **Approve** | `pending` → `approved` | Token becomes active and ready for the installer to claim |
+   | **Reject** | `pending` → `rejected` | The intent is discarded, no further action possible |
+   | **Regen Token** | `pending` or `approved` | Generates a new token (old one becomes invalid), shown via browser `alert()` |
+   | **Revoke** | `pending` or `approved` → `revoked` | The intent is cancelled, token invalidated |
+
+5. **Important notes**:
+   - The claim token is only ever visible **at creation time** and **at regeneration time**. The backend stores only the bcrypt hash.
+   - The `alert()` for regeneration is a deliberate UX choice: unlike creation (which shows the token inline), regeneration is less common and the alert reinforces that the token must be saved immediately.
+   - The table marks expired intents with red text and an "Expired" label. Expired intents cannot be claimed.
+
+PR 6: Secure self-enrolment
+Replace caller-provided user_identity as authority:
+- Require authenticated user identity.
+- Verify permission to enrol into the selected site.
+- Atomically create device, assignment, lifecycle epoch, and credentials.
+- Persist enrollment_method = self-enrolled.
+
+PR 7: Define the device credential contract
+**Backend:**
+- Return plaintext credentials only at issuance or rotation.
+- Store only hashes/verifiers.
+- Add credential ID, creation time, rotation time, and revocation time.
+- Reject credentials for inactive lifecycle states.
+- Support controlled credential rotation.
+**User App:**
+- Replace sessionStorage and misleading homepot_token usage.
+- Introduce a credential-storage abstraction:
+  - simulation storage for development;
+  - Linux secret/file storage with strict permissions;
+  - Windows Credential Manager or DPAPI;
+  - Android Keystore when that platform is implemented.
+This abstraction is particularly important because it allows simulations and real devices to use the same higher-level workflow.
+
+PR 8: Add an explicit unpair operation
+Replace semantic dependence on unauthenticated DELETE with something like:
+POST /api/v1/devices/{device_id}/unpair
+The backend should:
+- authenticate the caller;
+- verify site ownership;
+- validate the current lifecycle state;
+- support an idempotency key;
+- revoke device credentials;
+- revoke push-provider registrations;
+- expire outstanding commands and sessions;
+- set lifecycle_state = unpaired;
+- retain historical records; and
+- produce a complete audit event.
+
+PR 9: Correct the User App unpair flow
+The User App should:
+- send its authenticated unpair request;
+- check the HTTP response;
+- distinguish confirmed unpairing from network failure;
+- clear secure local credentials after confirmation;
+- show “server revocation pending” after a local-only reset;
+- prevent silent success on failed requests.
+
+PR 10: Add assignment and lifecycle history
+Create explicit records such as:
+- DeviceAssignment
+- DeviceLifecycleEpoch
+- DeviceLifecycleEvent
+This provides historical ownership without rewriting old telemetry when a device moves.
+
+PR 11: Add suspend, resume, retire, and re-enrol
+Implement authorised transitions with audit reasons:
+- active → suspended
+- suspended → active
+- active/suspended → unpaired
+- unpaired → active through a new epoch
+- eligible states → retired
+Transfer between sites should create a new assignment and epoch, revoke old credentials, and require permission in both scopes.
+
+## Linux real-device readiness
+Once the lifecycle and credential contract is stable:
+- package the Linux agent;
+- generate a persistent stable device identity;
+- secure credentials on disk or in a keyring;
+- configure backend URL and trust anchors;
+- implement authenticated DNA registration;
+- implement heartbeat and telemetry retry queues;
+- implement command polling/push wake-up;
+- implement command acknowledgement and result reporting;
+- add log rotation and service supervision;
+- test restart, network loss, token revocation, duplicate enrolment, and unpairing.
+The Linux agent should be the reference implementation for the later Windows agent.
+
+PR 12: Agent packaging & identity
+- Package the Python code as a proper Linux daemon (systemd service, deb/rpm, FHS layout)
+- Generate a persistent stable device identity (e.g. /etc/machine-id + salt, or a generated UUID stored in /var/lib/homepot/identity)
+- Placeholder for LinuxFileStorage in credentialStorage.ts → actually implement it on the Python side
+  
+PR 13: Linux credential storage
+- Implement real OS-protected credential storage (file with 0600 at ~/.homepot/credentials or a keyring integration)
+- Backend URL and TLS trust anchor configuration
+  
+PR 14: Authenticated agent bootstrap
+- Implement the full agent bootstrap flow: identity generation → DNA registration → heartbeat start
+- Move from manual TestClient provision to the agent calling /devices/provision itself
+
+PR 15: Heartbeat & telemetry with retry
+- Implement the heartbeat loop with authenticated X-Device-ID / X-API-Key
+- Add a retry queue for offline periods (exponential backoff, persistent queue on disk)
+
+PR 16: Command polling & push wake-up
+- Implement /devices/pending polling loop
+- Add push wake-up integration (MQTT/FCM) so the agent doesn't need to poll constantly
+
+PR 17: Command ack & result reporting
+- Implement /devices/{device_id}/commands/{command_id}/ack and result submission
+- Wire up to local IPC so the real device can execute commands
+
+PR 18: Production hardening
+- Log rotation, service supervision (systemd watchdog), graceful shutdown
+- Comprehensive failure tests: restart, network loss, token revocation, duplicate enrolment, unpairing
+
+PR 19: Surface hidden device/site fields + credential status reader
+Expose data that already exists in the database but is not returned by
+any API response.
+
+| Change | Reason |
+|---|---|
+| Add `last_heartbeat_at` to `GET /devices/device/{device_id}` | Dashboard needs the raw timestamp for connectivity display |
+| Add `tenant_id` to site GET responses | Dashboard shows tenant assignment per site |
+| Add `credential_status` (derived from `device_credentials.is_active`) to device GET responses | Dashboard shows credential health without exposing secrets |
+| `GET /devices/device/{device_id}/credentials` — read-only credential history (version list with timestamps + `is_active`; no `key_hash`) | Dashboard metadata for troubleshooting |
+| Ensure `GET /agent/{device_id}/status` includes `last_heartbeat_at` | Consistency across agent endpoints |
+
+PR 20: Dashboard aggregate endpoint
+
+| Change | Reason |
+|---|---|
+| `GET /dashboard/summary` — global counts grouped by `lifecycle_state`, `connectivity_state`, `health_state` | Top-level dashboard KPIs |
+| `GET /sites/{site_id}/dashboard` — same breakdown scoped to one site | Per-site dashboard view |
+| Include `pending_enrolment_intents` count (intents in PENDING/APPROVED status) | Dashboard shows queue of devices waiting to enrol |
+| Include `pending_commands` and `expired_commands` counts | Dashboard shows outstanding work |
+
+PR 21: Device command history endpoint + auto-expiry scheduler
+
+| Change | Reason |
+|---|---|
+| `GET /devices/device/{device_id}/commands` — user-facing route returning all commands for a device (past, pending, expired) sorted by `created_at` | Dashboard needs command history per device |
+| Background scheduler that marks PENDING/SENT commands as EXPIRED after a TTL | Prevents stale commands from lingering |
+| *(Optional)* Add command counts to existing device GET responses | Quick glance at command load |
+
+PR 22: Enrolment intent auto-expiry scheduler
+
+| Change | Reason |
+|---|---|
+| Background scheduler that marks PENDING and APPROVED intents as EXPIRED when `expires_at < now()` | Without this, intents only expire at claim time |
+| Ensure intent counts in the dashboard summary are correct | Dashboard surfaces pending intents across all sites |
+
+PR 23: Modernise legacy agent endpoint + push-log stub fill
+
+| Change | Reason |
+|---|---|
+| Update `GET /agents` and `GET /agents/{device_id}` to use `lifecycle_state`, `connectivity_state`, `health_state` instead of the deprecated `status` field | Dashboard consumes this for the agent list view |
+| *(Optional)* Populate the stubbed `GET /device/{device_id}/push-logs` with real data from the push notifications table | Dashboard shows notification delivery status |
+
+## Frontend
+
+These five PRs deliver the backend API surface a dashboard UI would
+consume.  A separate frontend PR builds the React components that call
+these endpoints.
+
+PR 24: frontend/src/services/api.js — 3 new API methods:
+- dashboard.summary() → GET /dashboard/summary
+- sites.getDashboard(siteId) → GET /sites/{sid}/dashboard
+- devices.getCredentials(deviceId) → GET /device/{id}/credentials
+- devices.getCommands(deviceId) → GET /device/{did}/commands
+frontend/src/pages/Dashboard.jsx — Fetches dashboard.summary() and renders 4 aggregate stat cards (Total Devices, Online, Offline, Active) above the monitored resources.
+
+### Site Detail device table
+
+The Site Detail page (`frontend/src/pages/Sites/SiteDetail.jsx`) displays a table of devices associated with a site. Each row pulls from `GET /sites/{site_id}/devices`.
+
+| Column | Field | Display |
+|---|---|---|
+| **Name** | `device.name` | Clickable link to Device Detail page |
+| **Type** | `device.device_type` | Uppercase, underscores replaced with spaces |
+| **Connectivity** | `device.connectivity_state` | Badge: `ONLINE` / `OFFLINE` / `UNKNOWN` (see colour reference below) |
+| **Status** | `device.lifecycle_state` | Badge: `ACTIVE` / `SUSPENDED` / `UNPAIRED` (see colour reference below) |
+| **Health** | `device.health_state` | Badge: `HEALTHY` / `WARNING` / `ERROR` / `MAINTENANCE` (see colour reference below) |
+| **Mode** | `device.enrollment_method` / `device.device_source` / `device.is_simulated` | Badge: `EMU` (cyan), `SIM` (purple), `REAL` (slate) |
+| **Enrollment** | `device.enrollment_method` | Pill: `self-enrolled` (purple) or `Pre-Provisioned` (blue) |
+| **Alerts** | `device.active_alerts` | Count with icon; green checkmark when zero |
+| **Last Seen** | `device.last_seen` + `device.last_heartbeat_at` | Timestamp plus heartbeat timestamp on a second line |
+| **Actions** | — | Edit and Delete icon buttons |
+
+#### Status columns colour reference
+
+Each status badge uses **background + text** colours. Green always means "OK",
+red always means "not OK" / needs attention; neutral states (unpaired, unknown)
+are gray.
+
+**Connectivity badge:**
+
+| State | Colour |
+|---|---|
+| `online` | emerald-400 text on emerald-500/10, emerald border |
+| `offline` | red-400 text on red-500/10, red border |
+| `unknown` | yellow-400 text on yellow-500/10, yellow border |
+
+**Status badge (lifecycle):**
+
+| State | Colour |
+|---|---|
+| `active` | green-500 text on green-500/10 |
+| `suspended` | orange-500 text on orange-500/10 |
+| `unpaired` | gray-500 text on gray-500/10 |
+| `pending`, `retired`, or unknown | yellow-500 text on yellow-500/10 |
+
+**Health badge:**
+
+| State | Colour |
+|---|---|
+| `healthy` | green-400 text on green-500/10 |
+| `warning` | yellow-400 text on yellow-500/10 |
+| `error` | red-400 text on red-500/10 |
+| `maintenance` | blue-400 text on blue-500/10 |
+| `unknown` or absent | gray-400 text on gray-500/10 |
+
+**Mode badge:**
+
+| State | Colour |
+|---|---|
+| `EMU` (emulated) | cyan-400 text on cyan-500/10, cyan border |
+| `SIM` (simulated) | purple-400 text on purple-500/10, purple border |
+| `REAL` (physical) | slate-400 text on slate-500/10, slate border |
+
+> All badges are rendered **uppercase** at a uniform `text-xs` size.
+
+## Windows adaptation
+Only after the Linux real-device contract works:
+- implement stable Windows device identity;
+- use Windows Credential Manager or DPAPI;
+- package as a signed Windows service/MSI;
+- implement HTTPS and proxy handling;
+- add WNS or the selected wake-up mechanism;
+- implement service recovery and upgrades;
+- test restricted users, reboot, firewall, proxy, sleep/resume, and credential revocation.
+The backend APIs and lifecycle rules should remain platform-neutral.
+
+## Dev server & real-device rollout
+
+These PRs close the gap between localhost simulation and real device testing on a dev server.
+They focus on configuration parameterisation, data-model fidelity, and deployment tooling.
+
+PR 25: **Environment-agnostic configuration**
+
+Replace hardcoded localhost values with environment-driven configuration so the same
+build targets localhost, a dev server, or production without code changes.
+
+| File | Current (hardcoded) | Target |
+|---|---|---|
+| `backend/src/homepot/main.py` lines 319-325 | `allow_origins = ["http://localhost:5173", …]` | Read from `CORS_ORIGINS` env var, fall back to localhost list |
+| `backend/src/homepot/app/main.py` lines 67-73 | Same duplication | Consolidate to one CORS config; read from env |
+| `frontend/.env.local` | `VITE_API_BASE_URL=http://localhost:8000` | Retain as default; document override for dev server |
+| `user_app/.env.example` | `VITE_API_BASE_URL=http://localhost:8000/api/v1` | Same |
+| `backend/src/homepot/agent/agent-config.json` | `backend_url: "http://localhost:8000"` | Retain as default; agent CLI accepts `--backend-url` override |
+| `backend/.env.example` `ENABLE_AGENT_SIMULATION=true` | Declared but **never read** | Wire to gate `AgentManager` start (see PR 27) |
+
+PR 26: **Add `is_simulated` flag to Device model**
+
+Allow the Dashboard to distinguish real devices from simulated seed data.
+
+**Backend:**
+- Add `is_simulated: bool` column to `Device` (default `false`), additive migration.
+- Seed scripts (`seed_factories.py`, `generate_traffic.py`) set `is_simulated=true`.
+- Real registration paths (`/devices/provision`, `/devices/bootstrap-provision`, enrolment-intent claim) set `is_simulated=false`.
+- Expose field in `GET /devices/device/{id}` and device-list responses.
+
+**Dashboard:**
+- Display a "Simulated" badge on simulated device rows.
+- Filter/toggle to hide simulated devices in fleet views.
+- Exclude simulated devices from "real" fleet counts.
+
+PR 27: **Wire `ENABLE_AGENT_SIMULATION` env var**
+
+The env var exists in `.env.example` but is never read. Gate the simulator so a dev
+server can run without simulated agents polluting real device data.
+
+**Backend:**
+- Read `ENABLE_AGENT_SIMULATION` (default `true` for local dev).
+- In `main.py` startup, only call `get_agent_manager()` when enabled.
+- `get_agent_manager()` returns a no-op placeholder when disabled (so endpoints that reference it don't crash).
+- Simulation endpoints (`/agents/simulation/start|stop|status`) return 404 when disabled.
+
+PR 28: **Wire command poll loop & secure command endpoint**
+
+Two concrete gaps that block real-device command execution.
+
+**Real device agent:**
+- Activate the existing `command_poll_loop` in `real_device_agent.py` (uses `GET /api/v1/devices/pending`).
+- Wire the execution dispatcher for `PING`, `RESTART_AGENT`, `APPLY_CONFIG`.
+- Report outcomes via `PUT /api/v1/commands/{command_id}/status`.
+- Reuse the existing `RetryQueue` for offline resilience.
+
+**Backend security:**
+- Add authorisation to `POST /devices/{device_id}/commands` — require admin/site-operator JWT.
+- Add audit logging for who queued which command.
+- Add rate limiting to prevent abuse.
+
+PR 29: **Traditional deployment scripts**
+
+Systemd units, CLI launchers, and env-file templates for a dev server without Docker.
+
+| Deliverable | Description |
+|---|---|
+| `deploy/homepot-api.service` | Systemd unit for the FastAPI backend (uvicorn, working directory, user, env file, log config) |
+| `deploy/homepot-agent.service` | Systemd unit for the real device agent |
+| `deploy/homepot-frontend.service` | Systemd unit for the Vite/React dashboard (built as static files served by a simple HTTP server, or reverse-proxied) |
+| `deploy/env-override.sh` | Script that sets `CORS_ORIGINS`, `DATABASE__URL`, `SECRET_KEY`, `ENABLE_AGENT_SIMULATION=false` for dev server |
+| `deploy/README.md` | Walkthrough: provision database, copy env file, enable services, verify health |
+| `scripts/setup-dev-server.sh` | Opinionated one-shot: installs deps, creates DB, runs migrations, starts services in correct order |
+
+PR 30: **Dev server smoke tests**
+
+A test suite that validates a fresh dev server deployment before real devices connect.
+
+**Tests:**
+- Health endpoint responds 200.
+- Unauthenticated device endpoints reject with 401.
+- Admin can create a site and enrolment intent.
+- Agent can bootstrap-provision and heartbeat.
+- Simulator is off (`/agents/simulation/status` returns 404).
+- CORS headers include the configured dev server origin.
+- `is_simulated=false` on provisioned devices.
+
+## Windows adaptation PRs
+
+| PR  | Focus | Description |
+| --- | ----- | ----------- |
+| W1  | **Stable Windows device identity** | Generate/persist a stable identity (e.g. from `WMID`/`Get-CimInstance Win32_ComputerSystemProduct` + salt, or a generated UUID in `%PROGRAMDATA%\Homepot\identity`). Add `WindowsIdentityProvider` to the agent. |
+| W2  | **Windows credential storage** | Implement `WindowsCredManager` using `keyring` with Credential Manager backend, or direct DPAPI via `crypt32`. Replace the `SimulationStorage` fallback on Windows. |
+| W3  | **Windows agent bootstrap & enrolment** | Wire identity + credential storage into the agent's bootstrap flow on Windows. Test end-to-end enrolment from a Windows host. |
+| W4  | **Windows service packaging** | Package the agent as a Windows service (pywin32), create an MSI (WiX or similar), handle `SERVICE_AUTO_START`, service recovery policy (restart on failure). |
+| W5  | **Windows proxy & HTTPS** | Read system-proxy settings (IE/WinHTTP proxy), configure `httpx`/`requests` to respect them. Validate Windows certificate store for TLS. |
+| W6  | **Agent-side WNS push wake-up** | The backend WNS provider is done; add the agent-side push channel registration and wake-up handler so the agent does not have to poll constantly on Windows. |
+| W7  | **Windows service recovery & upgrades** | Log rotation (Windows EventLog or rolling file), graceful shutdown via `SERVICE_CONTROL_PRESHUTDOWN`, atomic in-place upgrade strategy for MSI. |
+| W8  | **Windows resilience tests** | CI tests on `windows-latest` covering: restricted users, reboot resilience, firewall blocks, proxy misconfiguration, sleep/resume, credential revocation, duplicate enrolment. |
+
+## User App PRs
+
+| PR  | Focus | Description |
+| --- | ----- | ----------- |
+| U1  | **User App standalone packaging (Electron/Tauri)** ✅ | Package the React app as a native desktop shell for filesystem and OS API access. Enable native `LinuxFileStorage` (currently falls back to browser `sessionStorage`). Add OS-level device identity, system tray, window management, and auto-update foundation. |
+| U2  | **Device-credential auth for self-enrolment** ✅ | Replace SSO cookie-based login (`POST /login`, `credentials: 'include'`) with device-credential auth. Add `bootstrap_key_hash` to the `Site` model; new `POST /devices/bootstrap-provision` endpoint validates the key via bcrypt and provisions directly; new `POST /sites/{site_id}/bootstrap-key` endpoint for operators to generate/regenerate keys; frontend SignIn.tsx now accepts a bootstrap key instead of email/password; ReviewStep calls `/devices/bootstrap-provision` without `credentials: 'include'`. |
+| U3  | **Device permissions backend (DB model + API)** ✅ | Add `device_permissions` JSON column to `Device` model. Add `capabilities` JSON column (derived from `os_details` at provision time — maps OS to supported permission flags). Create `PATCH /devices/device/{device_id}/permissions` (device auth via X-Device-ID + X-API-Key, validates against capabilities) and `GET /devices/device/{device_id}/permissions` (operator JWT, includes capabilities). Add `PATCH /devices/device/{device_id}/permissions/admin-override` (operator JWT, admin override with capability validation). Include `device_permissions` and `capabilities` in `GET /devices/device/{id}` response. Schema: `{ root_access, process_monitoring, filesystem_access, network_monitoring }`, all default `false`. |
+| U4  | **Wire Permissions UI to backend** ✅ | Fetch current permissions on mount (device-credential auth, now also accepted by `GET /device/{device_id}/permissions`). Debounced `PATCH` on toggle change (300 ms). Loading spinner on first fetch. Error banner on fetch/sync failure. Individual toggle saving state. Disabled toggles for capabilities the OS does not support (greyed out with "Not supported on this OS" hint). |
+| U5  | **Agent-side permission enforcement** ✅ | Python agent fetches `device_permissions` from backend on each poll cycle (`fetch_device_permissions`). Checks required permission before executing privileged commands (`restart`/`shutdown` → `root_access`, `update_config` → `filesystem_access`). Returns `failed` status with denial reason if permission not granted. Maps capabilities from `os_details` during device-DNA registration. |
+| U6  | **Real device DNA** ✅ | Replace hardcoded MAC, IP, hostname placeholders in `DeviceInfo` view. Fetch real MAC, local IP, hostname from the agent or backend API. Ensure `GET /devices/device/{id}` exposes these fields. |
+| U7  | **Error boundaries and tests** ✅ | React error boundary wrapping each view. Unit tests for `credentialStorage`, each view, and API service layer. Integration test for a full enrolment → claim → status → unpair cycle. |
+
+---
+
+## Remaining Work Before Production Deployment
+
+The following items are not yet started. They represent the work needed after the simulation-to-real-device transition and server launch next week.
+
+| ID  | Task | Notes |
+|-----|------|-------|
+| R1  | **Real device onboarding process** | Replace `is_simulated` flag workflow. Formalise real-device enrolment flow with production bootstrap keys, QR codes, and technician approval gating. Remove last simulation shims. |
+| R2  | **Production CI/CD pipeline** | Add real-device integration tests to CI pipeline. Define staging/production deployment stages (Docker Compose → k3s or Nomad). Automate DB migration, secret injection, and rollback. |
+| R3  | **Monitoring & alerting** | Agent heartbeat health check with alert threshold. Dashboard for device online/offline state. PagerDuty or Slack alerting for offline fleet. Prometheus + Grafana stack. |
+| R4  | **Observability** | Structured logging (JSON) across backend and agent. Metrics dashboard (request latency, error rate, DB pool usage, agent poll success). Distributed tracing for end-to-end enrolment/claim flows. |
+| R5  | **Scalability & performance** | Load test with 1 000+ simulated devices. DB connection pooling tuning. API pagination for device list. Backend horizontal-scaling readiness (session affinity or stateless auth). Agent poll-interval backoff and batching. |
+| R6  | **Security hardening** | Certificate rotation for TLS. Audit trail completeness (log every permission change, enrolment, unpair). RBAC refinement (operator vs. admin roles, permission-scoped API keys). Secrets rotation (API keys, bootstrap keys). Rate limiting on auth endpoints. |
+| R7  | **Production rollout plan** | Phased rollout: canary fleet → regional rollout → full fleet. Feature flags for new auth flows. Rollback procedure definition. Runbook for common incidents (device offline, DB congestion, auth failures). |

@@ -1,0 +1,102 @@
+# Development dependencies for HOMEPOT Client
+# Use: pip install -r requirements.txt
+
+# Core FastAPI and Database
+fastapi==0.127.0  # High-performance web framework for building APIs
+starlette==0.50.0  # ASGI framework/toolkit (Force security update for CVE-2025-62727)
+uvicorn[standard]==0.40.0  # ASGI web server implementation
+sqlalchemy==2.0.45  # SQL Toolkit and Object Relational Mapper (ORM)
+aiosqlite==0.22.1  # SQLite async driver (for testing)
+asyncpg==0.31.0  # PostgreSQL async driver (production)
+alembic==1.17.2  # Database migration tool for SQLAlchemy
+psycopg2-binary==2.9.11  # PostgreSQL sync driver (backup/utility scripts)
+
+# Authentication and Security (including SSO/Google Auth)
+passlib[bcrypt]==1.7.4  # Password hashing library
+bcrypt==4.1.3  # Modern password hashing (Upgraded for chromadb compatibility)
+python-multipart==0.0.21  # Streaming multipart parser for file uploads
+google-auth==2.45.0  # Required for Google ID token verification
+google-auth-oauthlib==1.2.2  # For OAuth2 flows
+requests==2.32.5  # Required for token exchange requests
+pyjwt[crypto]==2.10.1  # For JWT token generation
+slowapi==0.1.9  # For rate limiting public endpoints
+
+# Background Tasks and Queues
+celery==5.6.0  # Distributed task queue for background processing
+redis==7.1.0  # Python client for Redis (used as Celery broker/backend)
+
+# Real-time Communication
+websockets==15.0.1  # Library for building WebSocket servers and clients
+asyncio-mqtt==0.16.2  # For async MQTT client communication (IoT device messaging)
+
+# Utilities
+pydantic==2.12.5  # Data validation using Python type hints
+pydantic-settings==2.12.0  # Settings management using Pydantic
+python-dotenv==1.2.1  # Read key-value pairs from .env file
+structlog==25.5.0  # For structured logging
+rich==14.2.0  # For rich terminal output
+click==8.3.1  # Composable command line interface toolkit
+typer==0.20.1  # For CLI interface
+pyyaml==6.0.3  # For YAML configuration
+psutil>=5.9.0  # Cross-platform process and system utilities
+
+# AI Dependencies
+chromadb==1.4.0  # Vector database for AI memory and embeddings
+ollama==0.6.1  # Client for local LLM interaction (Llama 3.2)
+textblob==0.19.0  # Simple NLP library for sentiment analysis/processing
+
+# Push Notifications
+aiohttp==3.13.2  # For async HTTP requests in push notification providers
+pyjwt[crypto]==2.10.1  # For JWT token generation (APNs authentication)
+py-vapid==1.9.2  # Pinning to 1.9.2 because 1.9.3 is broken (contains absolute symlinks)
+pywebpush==2.1.1  # For Web Push notifications (browsers)
+cryptography==46.0.3  # For VAPID key generation and encryption (Web Push)
+paho-mqtt==2.1.0  # For MQTT push notifications (IoT/OT devices)
+
+# Testing
+pytest==9.0.2  # The pytest framework makes it easy to write small tests
+pytest-asyncio==1.3.0  # Pytest support for asyncio
+pytest-cov==7.0.0  # Coverage reporting for pytest
+pytest-mock==3.15.1  # Thin-wrapper around the mock package for easier use with pytest
+pytest-xdist>=3.5.0  # For parallel test execution
+factory-boy==3.3.3  # A versatile test fixtures replacement
+faker==37.11.0  # Generates fake data for testing
+greenlet==3.2.4  # Lightweight coroutines (Required for async testing)
+
+# Code quality
+black==25.12.0  # The uncompromising code formatter
+isort==7.0.0  # Utility to sort imports alphabetically
+flake8==7.3.0  # Tool for style guide enforcement
+flake8-docstrings==1.7.0  # Extension for flake8 to check docstrings
+flake8-bandit==4.1.1  # Automated security testing using bandit and flake8
+mypy==1.19.1  # Optional static typing for Python
+bandit[toml]==1.9.2  # Security linter for Python code
+safety==3.7.0  # Checks installed dependencies for known security vulnerabilities
+pre-commit==4.5.1  # Framework for managing and maintaining multi-language pre-commit hooks
+
+# Documentation
+sphinx==8.2.3  # Python documentation generator
+sphinx-rtd-theme==3.0.2  # Read the Docs theme for Sphinx
+sphinx-autodoc-typehints==3.5.2  # Type hints support for Sphinx autodoc
+myst-parser==4.0.1  # Markdown parser for Sphinx
+
+# For ReadTheDocs builds
+mkdocs==1.6.1  # Project documentation with Markdown
+mkdocs-material==9.6.22  # Material Design theme for MkDocs
+mkdocs-material-extensions==1.3.1  # Extension pack for MkDocs Material
+pymdown-extensions==10.16.1  # Extensions for Python Markdown
+markdown==3.9  # Python implementation of Markdown
+mkdocs-minify-plugin==0.8.0  # Minifies HTML/JS/CSS for MkDocs
+
+# Development tools
+ipython==9.6.0  # Interactive computing
+jupyter==1.1.1  # Jupyter metapackage
+httpx[http2]==0.28.1  # Next-generation HTTP client (for testing HTTP clients and APNs HTTP/2 support)
+
+pydantic[email]==2.12.5  # Pydantic with email validation support
+
+# Type stubs for mypy
+types-passlib==1.7.7.20250602  # Type stubs for passlib
+types-requests==2.32.4.20250913  # Type stubs for requests
+types-psutil==7.0.0.20251001  # Type stubs for psutil
+types-PyYAML==6.0.12.20250915  # Type stubs for PyYAML

@@ -1,0 +1,373 @@
+import React, { useEffect, useState, useMemo } from 'react';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import {
+  Loader2,
+  CheckCircle,
+  AlertTriangle,
+  ArrowLeft,
+  RefreshCw,
+  Server,
+  Activity,
+} from 'lucide-react';
+import api from '@/services/api';
+import { useNavigate } from 'react-router-dom';
+
+export default function AgentList() {
+  const navigate = useNavigate();
+  const [agents, setAgents] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [sortConfig, setSortConfig] = useState({ key: 'site', direction: 'asc' });
+
+  const fetchAgents = async () => {
+    try {
+      setRefreshing(true);
+      const res = await api.agents.list();
+      setAgents(res.agents || []);
+    } catch (err) {
+      console.error('Failed to fetch agents:', err);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchAgents();
+  }, []);
+
+  const handleSort = (key) => {
+    let direction = 'asc';
+    if (sortConfig.key === key && sortConfig.direction === 'asc') {
+      direction = 'desc';
+    }
+    setSortConfig({ key, direction });
+  };
+
+  const sortedAgents = useMemo(() => {
+    let sortableItems = [...agents];
+    if (sortConfig.key !== null) {
+      sortableItems.sort((a, b) => {
+        let aValue, bValue;
+
+        switch (sortConfig.key) {
+          case 'status':
+            // 1 for Online, 0 for Offline
+            aValue = a.connectivity_state === 'online' ? 1 : 0;
+            bValue = b.connectivity_state === 'online' ? 1 : 0;
+            break;
+          case 'lifecycle':
+            aValue = a.lifecycle_state === 'active' ? 2 : a.lifecycle_state === 'suspended' ? 1 : 0;
+            bValue = b.lifecycle_state === 'active' ? 2 : b.lifecycle_state === 'suspended' ? 1 : 0;
+            break;
+          case 'health':
+            // 1 for Healthy (has check), 0 for Unknown
+            aValue = a.health_state === 'healthy' ? 1 : 0;
+            bValue = b.health_state === 'healthy' ? 1 : 0;
+            break;
+          case 'last_seen':
+            aValue = a.last_seen || a.last_health_check?.timestamp || '';
+            bValue = b.last_seen || b.last_health_check?.timestamp || '';
+            break;
+          case 'name':
+            aValue = (a.name || a.device_id || '').toLowerCase();
+            bValue = (b.name || b.device_id || '').toLowerCase();
+            break;
+          case 'site':
+            aValue = (a.site_name || a.site_id || '').toLowerCase();
+            bValue = (b.site_name || b.site_id || '').toLowerCase();
+            break;
+          case 'device_id':
+            aValue = a.device_id;
+            bValue = b.device_id;
+            break;
+          default:
+            return 0;
+        }
+
+        if (aValue < bValue) {
+          return sortConfig.direction === 'asc' ? -1 : 1;
+        }
+        if (aValue > bValue) {
+          return sortConfig.direction === 'asc' ? 1 : -1;
+        }
+        return 0;
+      });
+    }
+    return sortableItems;
+  }, [agents, sortConfig]);
+
+  const getLifecycleBadge = (state) => {
+    const s = state || 'unknown';
+    const colors = {
+      active: 'bg-green-500/10 text-green-400 border-green-500/20',
+      suspended: 'bg-orange-500/10 text-orange-400 border-orange-500/20',
+      unpaired: 'bg-gray-500/10 text-gray-400 border-gray-500/20',
+      pending: 'bg-yellow-500/10 text-yellow-400 border-yellow-500/20',
+    };
+    return (
+      <span
+        className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium uppercase border ${colors[s] || 'bg-slate-500/10 text-slate-400 border-slate-500/20'}`}
+      >
+        {s}
+      </span>
+    );
+  };
+
+  const getModeBadge = (agent) => {
+    const isEmulator = agent.enrollment_method === 'emulated' || agent.device_source === 'emulator';
+    if (isEmulator) {
+      return (
+        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-cyan-500/10 text-cyan-400 border border-cyan-500/20">
+          EMU
+        </span>
+      );
+    }
+    if (agent.is_simulated) {
+      return (
+        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-purple-500/10 text-purple-400 border border-purple-500/20">
+          SIM
+        </span>
+      );
+    }
+    return (
+      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-slate-500/10 text-slate-400 border border-slate-500/20">
+        REAL
+      </span>
+    );
+  };
+
+  const getStatusBadge = (state) => {
+    const isOnline = state === 'online';
+    return (
+      <span
+        className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium uppercase ${
+          isOnline
+            ? 'bg-green-900/30 text-green-400 border border-green-800'
+            : 'bg-red-900/30 text-red-400 border border-red-800'
+        }`}
+      >
+        {isOnline ? 'Online' : 'Offline'}
+      </span>
+    );
+  };
+
+  const getHealthIcon = (healthState) => {
+    if (!healthState || healthState === 'unknown') {
+      return (
+        <span className="flex items-center gap-1.5 text-yellow-500 text-xs uppercase">
+          <AlertTriangle className="w-4 h-4" />
+          Unknown
+        </span>
+      );
+    }
+
+    const isHealthy = healthState === 'healthy';
+    return (
+      <span
+        className={`flex items-center gap-1.5 ${isHealthy ? 'text-emerald-400' : 'text-red-400'} text-xs uppercase`}
+      >
+        {isHealthy ? <CheckCircle className="w-4 h-4" /> : <AlertTriangle className="w-4 h-4" />}
+        {healthState.charAt(0).toUpperCase() + healthState.slice(1)}
+      </span>
+    );
+  };
+
+  const formatDate = (ts) => {
+    if (!ts) return '—';
+    const clean = ts.replace(/\.\d+/, '');
+    const date = new Date(clean);
+    if (isNaN(date.getTime())) return '—';
+    return date.toLocaleString(undefined, {
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  };
+
+  // Calculate stats
+  const totalAgents = agents.length;
+  const onlineAgents = agents.filter((a) => a.connectivity_state === 'online').length;
+  const offlineAgents = totalAgents - onlineAgents;
+
+  if (loading) {
+    return (
+      <div className="h-full bg-slate-950 flex justify-center items-center">
+        <Loader2 className="h-8 w-8 text-teal-400 animate-spin" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="h-full bg-slate-950 p-2 text-slate-200 flex flex-col overflow-hidden">
+      {/* Header Section */}
+      <div className="shrink-0 flex flex-col md:flex-row md:items-center justify-between gap-4 mb-4">
+        <div>
+          <Button
+            variant="ghost"
+            onClick={() => navigate('/dashboard')}
+            className="pl-0 hover:pl-1 transition-all text-slate-400 hover:text-white hover:bg-transparent mb-2"
+          >
+            <ArrowLeft className="h-4 w-4 mr-2" />
+            Back to Dashboard
+          </Button>
+          <h1 className="text-2xl font-bold text-white tracking-tight">Device Agents</h1>
+          <p className="text-slate-400 text-sm mt-1">
+            Monitor real-time status and health of connected agents.
+          </p>
+        </div>
+        <Button
+          onClick={fetchAgents}
+          disabled={refreshing}
+          className="bg-slate-800 hover:bg-slate-700 text-white border border-slate-700"
+        >
+          <RefreshCw className={`h-4 w-4 mr-2 ${refreshing ? 'animate-spin' : ''}`} />
+          Refresh List
+        </Button>
+      </div>
+
+      <div className="flex-1 min-h-0 flex flex-col gap-4 overflow-hidden">
+        {/* Stats Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-2 shrink-0">
+          <Card className="bg-slate-900/50 border-slate-800">
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 p-4">
+              <CardTitle className="text-sm font-medium text-slate-400">Total Agents</CardTitle>
+              <Server className="h-4 w-4 text-slate-400" />
+            </CardHeader>
+            <CardContent className="p-4 pt-0">
+              <div className="text-2xl font-bold text-white">{totalAgents}</div>
+            </CardContent>
+          </Card>
+          <Card className="bg-slate-900/50 border-slate-800">
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 p-4">
+              <CardTitle className="text-sm font-medium text-emerald-400">Online</CardTitle>
+              <Activity className="h-4 w-4 text-emerald-400" />
+            </CardHeader>
+            <CardContent className="p-4 pt-0">
+              <div className="text-2xl font-bold text-white">{onlineAgents}</div>
+            </CardContent>
+          </Card>
+          <Card className="bg-slate-900/50 border-slate-800">
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 p-4">
+              <CardTitle className="text-sm font-medium text-red-400">Offline</CardTitle>
+              <AlertTriangle className="h-4 w-4 text-red-400" />
+            </CardHeader>
+            <CardContent className="p-4 pt-0">
+              <div className="text-2xl font-bold text-white">{offlineAgents}</div>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Agents Table */}
+        <Card className="border-slate-800 bg-slate-900/50 backdrop-blur-sm flex-1 overflow-hidden flex flex-col">
+          <div className="relative w-full overflow-auto flex-1">
+            <table className="w-full text-sm text-left">
+              <thead className="text-xs bg-slate-900/80 text-slate-400 border-b border-slate-800">
+                <tr>
+                  <th className="px-6 py-4 font-medium">Site</th>
+                  <th
+                    className="px-6 py-4 font-medium cursor-pointer hover:text-white transition-colors"
+                    onClick={() => handleSort('name')}
+                  >
+                    Device
+                  </th>
+                  <th className="px-6 py-4 font-medium">OS / Type</th>
+                  <th className="px-6 py-4 font-medium">IP</th>
+                  <th
+                    className="px-6 py-4 font-medium cursor-pointer hover:text-white transition-colors"
+                    onClick={() => handleSort('status')}
+                  >
+                    Status
+                  </th>
+                  <th
+                    className="px-6 py-4 font-medium cursor-pointer hover:text-white transition-colors"
+                    onClick={() => handleSort('lifecycle')}
+                  >
+                    Lifecycle
+                  </th>
+                  <th
+                    className="px-6 py-4 font-medium cursor-pointer hover:text-white transition-colors"
+                    onClick={() => handleSort('health')}
+                  >
+                    Health
+                  </th>
+                  <th className="px-6 py-4 font-medium">Mode</th>
+                  <th
+                    className="px-6 py-4 font-medium cursor-pointer hover:text-white transition-colors"
+                    onClick={() => handleSort('last_seen')}
+                  >
+                    Last Seen
+                  </th>
+                  <th className="px-6 py-4 font-medium text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-800">
+                {sortedAgents.length === 0 ? (
+                  <tr>
+                    <td colSpan={10} className="px-6 py-12 text-center text-slate-500">
+                      No agents found. Register a device to get started.
+                    </td>
+                  </tr>
+                ) : (
+                  sortedAgents.map((agent) => (
+                    <tr
+                      key={agent.device_id}
+                      className="hover:bg-slate-800/50 transition-colors cursor-pointer hover:bg-slate-800/70"
+                      onClick={() => navigate(`/device/${agent.device_id}`)}
+                    >
+                      <td className="px-6 py-4">
+                        <div className="text-white font-medium">
+                          {agent.site_name || agent.site_id || '—'}
+                        </div>
+                        <div className="text-xs text-slate-500 font-mono">
+                          {agent.site_id || '—'}
+                        </div>
+                      </td>
+                      <td className="px-6 py-4">
+                        <div className="text-white font-medium">
+                          {agent.name || agent.device_id}
+                        </div>
+                        <div className="text-xs text-slate-500 font-mono">{agent.device_id}</div>
+                      </td>
+                      <td className="px-6 py-4">
+                        <div className="text-slate-300 text-xs">{agent.os_details || '—'}</div>
+                        <div className="text-slate-500 text-[10px] uppercase">
+                          {agent.device_type?.replace(/_/g, ' ') || '—'}
+                        </div>
+                      </td>
+                      <td className="px-6 py-4 text-slate-400 font-mono text-xs">
+                        {agent.ip_address || '—'}
+                      </td>
+                      <td className="px-6 py-4">{getStatusBadge(agent.connectivity_state)}</td>
+                      <td className="px-6 py-4">{getLifecycleBadge(agent.lifecycle_state)}</td>
+                      <td className="px-6 py-4">{getHealthIcon(agent.health_state)}</td>
+                      <td className="px-6 py-4">{getModeBadge(agent)}</td>
+                      <td className="px-6 py-4 text-slate-400 font-mono text-xs">
+                        {formatDate(agent.last_seen || agent.last_health_check?.timestamp)}
+                      </td>
+                      <td className="px-6 py-4 text-right">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="text-teal-400 hover:text-teal-300 hover:bg-teal-400/10 h-8"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            navigate(`/device/${agent.device_id}`);
+                          }}
+                        >
+                          View Details
+                        </Button>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      </div>
+    </div>
+  );
+}

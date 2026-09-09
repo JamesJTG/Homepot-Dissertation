@@ -1,0 +1,223 @@
+# HOMEPOT Client Documentation
+
+site_name: HOMEPOT Client
+site_description: Homogenous Cyber Management of End-Points and OT - Gateway Management System
+site_author: Brunel OpenSim
+site_url: https://homepot-client.readthedocs.io/en/latest/
+
+# Exclude files from the docs site (kept in repo as per-dir guides).
+# docs/index.md is the mkdocs homepage; README.md would otherwise conflict with it.
+exclude_docs: |
+  README.md
+
+# Repository
+repo_name: brunel-opensim/homepot-client
+repo_url: https://github.com/brunel-opensim/homepot-client
+edit_uri: edit/main/docs/
+
+# Copyright
+copyright: Copyright &copy; 2024-2025 Brunel OpenSim
+
+# Configuration
+theme:
+  name: material
+  language: en
+  palette:
+    # Palette toggle for light mode
+    - scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    # Palette toggle for dark mode
+    - scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - navigation.tabs
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.code.annotate
+  icon:
+    repo: fontawesome/brands/github
+
+# Extensions
+markdown_extensions:
+  - abbr
+  - admonition
+  - attr_list
+  - def_list
+  - footnotes
+  - meta
+  - md_in_html
+  - toc:
+      permalink: true
+      toc_depth: 3
+  - pymdownx.arithmatex:
+      generic: true
+  - pymdownx.betterem:
+      smart_enable: all
+  - pymdownx.caret
+  - pymdownx.details
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.keys
+  - pymdownx.mark
+  - pymdownx.smartsymbols
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.tasklist:
+      custom_checkbox: true
+  - pymdownx.tilde
+
+# Plugins
+plugins:
+  - search:
+      lang: en
+      separator: '[\s\-,:!=\[\]()"`/]+|\.(?!\d)|&[lg]t;|(?!\b)(?=[A-Z][a-z])'
+  - minify:
+      minify_html: true
+
+# Page tree
+nav:
+  - Home: index.md
+  
+  - Project Info:
+      - Product Vision: product-vision.md
+      - Compliance Matrix: architecture-compliance-matrix.md
+      - UK KPI Evaluation Roadmap: kpi-evaluation-roadmap.md
+      - KPI Export & Calculations: kpi-export.md
+      - Pilot Operator Protocol: operator-protocol.md
+      - Evidence Recording: provenance-and-outcomes.md
+      - Getting Started:
+          - Quick Start: getting-started.md
+          - Running Locally: running-locally.md
+          - Complete Setup: complete-dashboard-setup.md
+
+  - Layer 1 - Control Panel:
+      - Overview: accessing-dashboard.md
+      - Real-time Monitoring: real-time-dashboard.md
+      - Authentication Flow: authentication-guide.md
+      - Frontend Analytics: frontend-analytics-integration.md
+      - Testing: dashboard-testing-guide.md
+      - UI Examples: visual-examples.md
+
+  - Layer 2 - API Gateway:
+      - API Reference:
+          - Authentication: user-authentication-api.md
+          - Device Endpoints: devices-by-site-endpoint.md
+      - Testing Guidelines: api-testing-guide.md
+      - Unified Push Gateway:
+          - Overview: push-notification.md
+          - Payload Structure: push-notification-payloads.md
+          - MQTT (IoT): mqtt-push-integration.md
+          - FCM (Android): fcm-linux-integration.md
+          - APNs (Apple): apns-apple-integration.md
+          - WNS (Windows): wns-windows-integration.md
+          - Web Push: web-push-integration.md
+
+  - Layer 3 - Service Layer:
+      - AI & Cognitive Engine:
+          - Roadmap: ai-roadmap.md
+          - Implementation: ai-implementation.md
+          - API Reference: ai-api-reference.md
+          - Context Builder: ai-context-builder.md
+          - Trust & Validation Gates: ai-validation-gates.md
+          - Anomaly Detection: anomaly-detection.md
+          - Infrastructure: ai-infrastructure.md
+          - Memory Inspection: ai-memory-inspection.md
+      - Audit System: audit-compliance.md
+      - Background Analytics: backend-analytics.md
+
+  - Layer 4 - Data Layer:
+      - Database Architecture: database-guide.md
+      - Setup & Migration:
+          - Fresh Setup: fresh-database-setup.md
+          - Postgres Migration: postgresql-migration-complete.md
+      - Telemetry Storage:
+          - TimescaleDB Integration: timescaledb-integration.md
+          - Metrics Validation: database-metrics-validation.md
+      - Data Collection: analytics-data-collection.md
+
+  - Layer 5 - Edge Layer:
+      - Device Management:
+          - Lifecycle & Ownership: device-lifecycle-and-ownership.md
+          - Site & Device Lifecycle Matrix: site-device-lifecycle-matrix.md
+          - Enrolment Intents: enrolment-intents.md
+          - Registration: device-registration.md
+          - Metrics Collection: device-metrics-collection.md
+          - Peripheral Discovery: peripheral-discovery.md
+          - Configuration (MDM): device-configuration-mdm.md
+      - Platform Integration:
+          - Mobivisor (Android): mobivisor-integration.md
+          - POS System (Dummy): POSDummy-Integration.md
+      - Agents & Simulation:
+          - Agent Simulation: agent-simulation.md
+          - Device Emulators: device-emulators.md
+          - Agent Packaging & Identity: agent-packaging-and-identity.md
+          - Fleet Load Testing: fleet-simulation.md
+          - Real Device Agent: real-device-agent.md
+          - Real Device Transition: real-device-transition.md
+          - Team Tasks (Readiness): real-device-readiness-tasks.md
+
+  - User App:
+      - Getting Started: get_start_userapp.md
+      - Frontend Guide: user-app-frontend-guide.md
+      - Wireframes: user-app-wireframes.md
+      - Device Lifecycle & Unpairing: user-app-device-lifecycle-and-unpairing.md
+      - Verify with Emulators: verify-user-app-with-emulators.md
+      - Host OS Interaction: userapp-os-interaction.md
+      - Host OS Testing Runbook: userapp-os-interaction-testing.md
+      - Team Tasks (Dealdio): dealdio-user-app-tasks.md
+
+  - Dev & Ops:
+      - Development Guide: development-guide.md
+      - Deployment: deployment-guide.md
+      - CI/CD Pipelines: frontend-ci-cd.md
+      - Monorepo Structure: monorepo-migration.md
+      - Repository Health: repository-health.md
+      - Collaboration: collaboration-guide.md
+      - Uncertainty Quantification:
+          - Overview: uq/overview.md
+          - "Study 1: Anomaly Detector Sensitivity": uq/study1-anomaly.md
+          - "Study 2: Simulator Scenario Validation": uq/study2-simulator.md
+          - "Study 3: Push Notification Reliability": uq/study3-push.md
+
+# Extra
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/brunel-opensim/homepot-client
+    - icon: fontawesome/brands/python
+      link: https://pypi.org/project/homepot-client/
+  version:
+    provider: mike
+
+# CSS
+extra_css:
+  - stylesheets/extra.css
+
+extra_javascript:
+  - javascripts/mathjax.js
+  - https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js

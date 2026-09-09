@@ -1,0 +1,241 @@
+# Getting Started with HOMEPOT
+
+Welcome to **HOMEPOT** (Homogenous Cyber Management of End-Points and OT). This guide provides a straightforward path to getting the system up and running using our automated scripts.
+
+## Prerequisites
+
+Before starting, ensure your system meets the following requirements:
+
+1.  **Operating System**: Linux (Ubuntu 22.04+ recommended) or macOS.
+2.  **Git**: Installed and configured.
+3.  **Package Manager**:
+    *   **macOS**: [Homebrew](https://brew.sh/) is required for automated installation of dependencies.
+    *   **Linux**: `apt` (for Ubuntu/Debian).
+4.  **Python**: Version 3.11 or higher.
+5.  **Node.js**: Version v22.
+    *   *(Note: Our install script will attempt to install this automatically if missing.)*
+6.  **Ollama** (Required for AI Features):
+    *   **Option A (Automated)**: Run `./scripts/setup-ollama.sh` (uses Homebrew on Mac).
+    *   **Option B (Manual)**: Install from [ollama.com](https://ollama.com) and pull the `llama3.2` model manually.
+
+## Quick Start Guide
+
+Follow these three steps to launch the complete HOMEPOT system.
+
+### Step 1: Install Dependencies
+
+Make scripts executable and run the installer. This script sets up the Python virtual environment, installs backend/AI dependencies, and automatically installs/configures Node.js and frontend dependencies.
+
+```bash
+chmod +x scripts/*.sh
+./scripts/install-backend.sh
+```
+
+> **Note**: If you haven't installed Ollama yet, run the AI setup script next. On macOS, this will use Homebrew to install Ollama and pull the required model.
+> ```bash
+> ./scripts/setup-ollama.sh
+> ```
+
+### Step 2: Initialize Database
+
+Initialize the PostgreSQL database with the schema and default admin user
+(`admin@homepot.com` / `homepot_dev_password`). This script detects your local
+PostgreSQL installation (via Homebrew on macOS or system packages on Linux) and
+ensures the service is running before creating the database. A fresh database
+starts **clean — no devices**.
+
+```bash
+./scripts/init-postgresql.sh
+```
+
+> **Note**: This setup uses a local PostgreSQL instance and does not require Docker.
+
+To load the **demo / simulated fleet** (tenants, sites, simulated devices,
+historical analytics) — e.g. for a demo or to see the simulator in action —
+run the opt-in seeder:
+
+```bash
+./scripts/seed-demo-data.sh
+```
+
+Without seeding, devices are added explicitly via **simulation**,
+**emulation**, or **real** devices (see
+[Device Emulators](device-emulators.md) and the three integration modes).
+
+
+### Step 3: Start the Application
+
+Use the following command to ensure any previous instances are stopped before starting the new session. This launches both the backend API and the frontend dashboard.
+
+```bash
+./scripts/stop-dashboard.sh && ./scripts/start-dashboard.sh
+```
+
+---
+
+## What's Next?
+
+Once the system is running, you can access:
+
+- **Dashboard**: [http://localhost:5173](http://localhost:5173)
+- **API Documentation**: [http://localhost:8000/docs](http://localhost:8000/docs)
+
+For detailed development information, refer to the [Development Guide](development-guide.md).
+
+## Three Test Integration Modes
+
+The system supports **three** device modes. **Test technicians should know which mode they are running**, because each one produces telemetry through a different path. Only one mode should be active for a given device at a time.
+
+Start from a clean database, then pick a mode:
+
+```bash
+./scripts/init-postgresql.sh          # clean DB: schema + admin (no devices)
+```
+
+### Mode 1: Simulation
+
+The backend's in-process agent simulator (`ENABLE_AGENT_SIMULATION=true`) drives every active POS/IoT device — no external process. It writes heartbeats, health checks, and metrics directly to the database.
+
+```bash
+./scripts/init-postgresql.sh
+./scripts/start-dashboard.sh simulation
+
+# (optional) load the demo/simulated fleet
+./scripts/seed-demo-data.sh
+```
+
+- Devices appear **online** immediately (the simulator heartbeats for them).
+- The simulator attaches to **existing active devices** — with an empty DB there is nothing to simulate, so seed the demo fleet or add devices first.
+- Switch mode at runtime: `./scripts/set-simulation-mode.sh off`.
+
+### Mode 2: Emulation
+
+Standalone emulator processes (`./scripts/start-emulator.sh`) authenticate against the backend and behave like real hardware over the agent API (device DNA, heartbeat, telemetry, command polling). Use for end-to-end testing of the device lifecycle and User App without physical hardware.
+
+```bash
+./scripts/init-postgresql.sh
+./scripts/start-dashboard.sh emulation   # simulator OFF
+
+# in another terminal, run one or more emulators
+./scripts/start-emulator.sh --emulator macos \
+  --backend-url http://localhost:8000 \
+  --site-id <site-id> --bootstrap-key <key> \
+  --device-name demo-pos-1
+```
+
+- The site must exist first (create it via the Dashboard or API).
+- See [Device Emulators](device-emulators.md) for all OS emulators and configuration.
+- Switch to simulation at runtime: `./scripts/set-simulation-mode.sh on`.
+
+### Mode 3: Real Devices
+
+Physical devices running the HOMEPOT agent talk to the backend over the network via the agent API.
+
+```bash
+./scripts/init-postgresql.sh
+./scripts/start-dashboard.sh real        # flag provisioned; simulator OFF
+```
+
+- The `real` flag keeps the simulator OFF so real agents are the sole data source; full real-device onboarding support is pending.
+- See the [Agent API Contract](getfudo-preparatory-tasks.md#3-api-contract-summary).
+
+> **Tip for test technicians:** a fresh DB starts with **no devices** in any
+> mode — devices are added via seeding (simulation), emulators (emulation), or
+> real onboarding. With the simulator ON, devices get heartbeats/telemetry
+> written for them; with it OFF (emulation/real), telemetry comes only from
+> emulators or real agents.
+
+## Starting & Stopping All Services
+
+The HOMEPOT platform runs **five** independent services. This section documents the
+clean start/stop cycle, which doubles as a smoke test to catch startup issues early.
+
+| Service | Log file (`logs/`) | PID file (`logs/`) | Start command | Stop command |
+|---------|--------------------|--------------------|---------------|--------------|
+| **Backend** (API :8000) | `backend.log`, `backend.out` | `backend.pid` | `./scripts/start-dashboard.sh` | `./scripts/stop-dashboard.sh` |
+| **Frontend** (Vite :5173) | `frontend.log` | `frontend.pid` | `./scripts/start-dashboard.sh` | `./scripts/stop-dashboard.sh` |
+| **AI / LLM** (Ollama :11434) | `ai.log` | `ai.pid` | `./scripts/setup-ollama.sh` | n/a (see note) |
+| **Emulator** (POS terminal) | `emulator-<name>.log` | `emulator-<name>.pid` | `./scripts/start-emulator.sh` | `./scripts/stop-emulator.sh [name]` |
+| **User App** (Electron agent) | `userapp.log` | `userapp.pid` | `./scripts/start-userapp.sh` | `./scripts/stop-userapp.sh` |
+
+### Full Restart (verified smoke test)
+
+1.  **Stop all services** — terminate the dashboard pair, any emulator, and the
+    User App. (Ollama/AI is left running if it was already active on :11434.)
+
+    ```bash
+    ./scripts/stop-dashboard.sh          # backend + frontend
+    ./scripts/stop-emulator.sh           # any running emulator
+    ./scripts/stop-userapp.sh            # Electron User App
+    ```
+
+2.  **Verify nothing is left on the ports:**
+
+    ```bash
+    ss -tlnp | grep -E '8000|5173|11434'   # expect no listeners (or only 11434 = ollama)
+    ```
+
+3.  **Start the core platform** (backend + frontend) in a mode:
+
+    ```bash
+    ./scripts/start-dashboard.sh simulation   # or: emulation | real
+    ```
+
+4.  **Start optional services** as needed:
+
+    ```bash
+    ./scripts/setup-ollama.sh             # AI / LLM service
+    ./scripts/start-emulator.sh --emulator linux \
+        --site-id <site-id> \
+        --bootstrap-key <key> --device-name demo-pos-1
+    ./scripts/start-userapp.sh            # Electron User App
+    ```
+
+5.  **Verify every service**:
+
+    ```bash
+    curl -s -o /dev/null -w 'backend: %{http_code}\n' http://127.0.0.1:8000/api/v1/health
+    curl -s -o /dev/null -w 'frontend: %{http_code}\n' http://127.0.0.1:5173
+    curl -s -o /dev/null -w 'login: %{http_code}\n' \
+      -X POST http://127.0.0.1:8000/api/v1/auth/login \
+      -H 'Content-Type: application/json' \
+      -d '{"email":"admin@homepot.com","password":"homepot_dev_password"}'
+    ```
+
+    Every command should return `200`, and each service should have a matching
+    `.log` / `.pid` pair in `logs/`.
+
+> **Troubleshooting notes from a real smoke test:**
+>
+> - **Ollama running as a different OS user** (e.g. systemd `ollama` service): `lsof` on
+>   the port returns nothing under your user, so `setup-ollama.sh` probes the Ollama
+>   HTTP API (`/api/version`) and falls back to `pgrep` — it will reuse the existing
+>   instance and write its real PID to `ai.pid`. A stale/dead PID in `ai.pid` usually
+>   means the instance could not bind the port.
+> - **"Request failed with status code 500" at login** almost always means the
+>   **backend is not running** — Vite returns a proxy 500. Check
+>   `curl http://127.0.0.1:8000/api/v1/health` first.
+> - **Clean log reset:** delete everything in `logs/` (except `README.md`) before a
+>   fresh run to confirm each service recreates its files.
+
+## Troubleshooting
+
+### Login Page Returns 500 / Connection Refused (ECONNREFUSED)
+
+If you encounter a `500` error or "Connection Refused" when attempting to log in, it is likely that the Vite development server proxy is pointing to the wrong backend port.
+
+*   **Symptoms**: You see `Error: connect ECONNREFUSED 127.0.0.1:8001` in the frontend logs or terminal when trying to hit `/api/v1/auth/login`.
+*   **Fix**: Update the `target` port in the `frontend/vite.config.js` proxy settings to point to port `8000` (the default backend port).
+    ```javascript
+    export default defineConfig({
+      // ...
+      server: {
+        proxy: {
+          '/api': {
+            target: 'http://127.0.0.1:8000', // Ensure this points to port 8000
+            // ...
+          },
+        },
+      },
+    });
+    ```

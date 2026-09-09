@@ -1,0 +1,1327 @@
+"""AI Insights API Endpoints.
+
+Provides REST API access to AI-powered analytics, predictions, and recommendations.
+"""
+
+from datetime import datetime, timedelta, timezone
+import logging
+import os
+import sys
+from typing import Any, Dict, Optional, cast
+
+from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel, Field
+from sqlalchemy import case, func, select
+from sqlalchemy.orm import Session as SASession
+
+from homepot.app.auth_utils import (  # noqa: E402
+    require_user,
+    verify_device_belongs_to_user,
+    verify_site_access_for_user,
+)
+from homepot.app.schemas.schemas import UserDict  # noqa: E402
+
+# Add project root to path to allow importing 'ai' package
+# Current file: backend/src/homepot/app/api/API_v1/Endpoints/AIEndpoint.py
+# Root is 7 levels up
+project_root = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), "../../../../../../../")
+)
+if project_root not in sys.path:
+    sys.path.append(project_root)
+
+from ai.analytics_service import AIAnalyticsService  # noqa: E402
+from ai.anomaly_detection import AnomalyDetector  # noqa: E402
+from ai.context_builder import ContextBuilder  # noqa: E402
+from ai.device_memory import DeviceMemory  # noqa: E402
+from ai.device_resolver import DeviceResolver  # noqa: E402
+from ai.failure_predictor import FailurePredictor  # noqa: E402
+from ai.gates import (  # noqa: E402
+    MODE_CAUTIONARY,
+    GateContext,
+    GateStatus,
+    build_envelope_from_config,
+)
+from ai.gates import EnvelopeResult  # noqa: E402
+from ai.job_scheduler import PredictiveJobScheduler  # noqa: E402
+from ai.llm import LLMService  # noqa: E402
+from ai.system_knowledge import SystemKnowledge  # noqa: E402
+
+from homepot.app.models.AnalyticsModel import (  # noqa: E402
+    DeviceMetrics,
+    PushNotificationLog,
+)
+from homepot.app.models.AnalyticsModel import Alert  # noqa: E402
+from homepot.audit import AuditEventType, get_audit_logger  # noqa: E402
+from homepot.database import get_database_service, get_db  # noqa: E402
+from homepot.models import Device, HealthCheck, Site, User  # noqa: E402
+
+logger = logging.getLogger(__name__)
+
+router = APIRouter(dependencies=[Depends(require_user())])
+
+# Tokens commonly used to break out of a prompt context and inject adversarial
+# instructions. These are neutralized in any user-supplied text before it is
+# placed into the LLM prompt (see _sanitize_ai_input).
+_INJECTION_TOKENS = (
+    "[INST]",
+    "[/INST]",
+    "<|im_start|>",
+    "<|im_end|>",
+    "<|system|>",
+    "<|assistant|>",
+    "<|user|>",
+    "### Instruction",
+    "### System",
+    "### Human:",
+    "Ignore all previous instructions",
+    "Ignore previous instructions",
+    "Disregard all previous",
+    "You are now",
+    "You are a helpful",
+)
+
+
+def _sanitize_ai_input(text: Optional[str], label: str = "text") -> str:
+    """Neutralize common prompt-injection tokens in user-supplied input.
+
+    User-provided ``context``, ``role`` and chat ``history`` are placed into the
+    LLM prompt, so they are a prompt-injection surface. This helper strips and
+    flags any tokens that could be used to break out of the instruction context.
+    """
+    if not text:
+        return ""
+    sanitized = text
+    flagged = 0
+    for token in _INJECTION_TOKENS:
+        if token.lower() in sanitized.lower():
+            flagged += 1
+            sanitized = sanitized.replace(token, "[neutralized]")
+    if flagged:
+        logger.warning(
+            "Sanitized %d injection token(s) from AI %s input", flagged, label
+        )
+    # Limit length so a single field cannot blow out the bounded context.
+    return sanitized[:4000]
+
+
+# --- Device context helpers ---------------------------------------------------
+
+# A device counts as online if it heartbeated recently (mirrors the site-status
+# computation). The stored Device.status field is NOT used: it only flips to
+# OFFLINE on explicit events and otherwise stays ONLINE even after a device
+# stops heartbeating.
+_HEARTBEAT_ONLINE_SECONDS = 120
+
+
+def _device_is_online(device: Device) -> bool:
+    """Return True if the device heartbeated within the online window."""
+    heartbeat = device.last_heartbeat_at
+    if not heartbeat:
+        return False
+    if heartbeat.tzinfo is None:
+        heartbeat = heartbeat.replace(tzinfo=timezone.utc)
+    delta = datetime.now(timezone.utc) - heartbeat
+    is_online: bool = delta.total_seconds() <= _HEARTBEAT_ONLINE_SECONDS
+    return is_online
+
+
+def _device_mode(device: Device) -> str:
+    """Classify a device's data source: simulated, emulated or real."""
+    config: dict = device.config if isinstance(device.config, dict) else {}
+    if (
+        device.enrollment_method == "emulated"
+        or config.get("device_source") == "emulator"
+    ):
+        return "emulated"
+    if device.is_simulated:
+        return "simulated"
+    return "real"
+
+
+# Request/Response Models
+class JobScheduleRequest(BaseModel):
+    """Request model for job scheduling recommendation."""
+
+    site_id: str = Field(..., description="Target site identifier")
+    job_priority: str = Field(
+        default="medium", description="Job priority: low, medium, high, critical"
+    )
+    earliest_start: Optional[str] = Field(
+        None, description="Earliest acceptable start time (ISO format)"
+    )
+
+
+class SuccessProbabilityRequest(BaseModel):
+    """Request model for success probability calculation."""
+
+    site_id: str = Field(..., description="Target site identifier")
+    device_id: str = Field(..., description="Target device identifier")
+    scheduled_time: str = Field(..., description="Proposed execution time (ISO format)")
+
+
+class ChatMessage(BaseModel):
+    """Model for a single chat message."""
+
+    role: str = Field(..., description="Role: 'user' or 'assistant'")
+    content: str = Field(..., description="Message content")
+
+
+class AIQueryRequest(BaseModel):
+    """Request model for AI query."""
+
+    query: str = Field(..., description="The question or prompt for the AI")
+    context: Optional[str] = Field(None, description="Optional context for the query")
+    device_id: Optional[str] = Field(None, description="Optional device ID for context")
+    role: Optional[str] = Field(None, description="User role of the requester")
+    history: Optional[list[ChatMessage]] = Field(
+        default_factory=list, description="Conversation history for short-term memory"
+    )
+
+
+# ==================== Analytics Endpoints ====================
+
+
+@router.get("/anomalies", tags=["AI Insights"])
+async def get_system_anomalies() -> Dict[str, Any]:
+    """Detect system-wide anomalies using AI heuristics."""
+    try:
+        detector = AnomalyDetector()
+        anomalies = []
+
+        db_service = await get_database_service()
+        async with db_service.get_session() as session:
+            # 1. Get active devices for mapping (only live, non-archived devices)
+            all_devices_result = await session.execute(
+                select(Device).where(Device.is_active.is_(True))
+            )
+            all_devices = all_devices_result.scalars().all()
+            device_map = {d.device_id: d.name for d in all_devices}
+
+            # 2. Fetch Active Alerts from Database (Persistent Context) FIRST
+            # We want to prioritize persistent alerts which have IDs.
+            alerts_result = await session.execute(
+                select(Alert).where(Alert.status == "active")
+            )
+            active_alerts = alerts_result.scalars().all()
+
+            # Track which devices have active alerts to avoid duplication
+            alerted_devices = set()
+
+            for alert in active_alerts:
+                alerted_devices.add(alert.device_id)
+                anomalies.append(
+                    {
+                        "id": alert.id,
+                        "device_id": alert.device_id,
+                        "device_name": device_map.get(
+                            alert.device_id, "Unknown Device"
+                        ),
+                        "score": round(alert.ai_confidence or 0.8, 2),
+                        "reasons": [alert.title, alert.description],
+                        "severity": alert.severity,
+                        "metrics": {
+                            "source": "persistent_alert",
+                            "category": alert.category,
+                        },
+                        "timestamp": (
+                            alert.timestamp.isoformat()
+                            if alert.timestamp
+                            else datetime.utcnow().isoformat()
+                        ),
+                    }
+                )
+
+            # Filter for monitored devices to run active detection
+            monitored_devices = [d for d in all_devices if d.is_monitored]
+            devices_to_check = [
+                d for d in monitored_devices if d.device_id not in alerted_devices
+            ]
+            device_ids_to_check = [d.id for d in devices_to_check]
+
+            # Batch query DeviceMetrics and HealthCheck to eliminate N+1 queries
+            latest_metrics_by_device: Dict[Any, Any] = {}
+            health_checks_by_device: Dict[Any, Any] = {}
+
+            if device_ids_to_check:
+                from sqlalchemy.orm import aliased
+
+                # 1. Batch fetch latest metrics
+                metrics_subq = (
+                    select(
+                        DeviceMetrics,
+                        func.row_number()
+                        .over(
+                            partition_by=DeviceMetrics.device_id,
+                            order_by=DeviceMetrics.timestamp.desc(),
+                        )
+                        .label("rn"),
+                    )
+                    .where(DeviceMetrics.device_id.in_(device_ids_to_check))
+                    .subquery()
+                )
+                metrics_alias = aliased(DeviceMetrics, metrics_subq)
+                metrics_result = await session.execute(
+                    select(metrics_alias).where(metrics_subq.c.rn == 1)
+                )
+                for metric in metrics_result.scalars().all():
+                    latest_metrics_by_device[metric.device_id] = metric
+
+                # 2. Batch fetch last 5 health checks
+                health_subq = (
+                    select(
+                        HealthCheck,
+                        func.row_number()
+                        .over(
+                            partition_by=HealthCheck.device_id,
+                            order_by=HealthCheck.timestamp.desc(),
+                        )
+                        .label("rn"),
+                    )
+                    .where(HealthCheck.device_id.in_(device_ids_to_check))
+                    .subquery()
+                )
+                health_alias = aliased(HealthCheck, health_subq)
+                health_result = await session.execute(
+                    select(health_alias).where(health_subq.c.rn <= 5)
+                )
+                for hc in health_result.scalars().all():
+                    health_checks_by_device.setdefault(hc.device_id, []).append(hc)
+
+                # Ensure order is sorted by timestamp descending
+                for dev_id, checks in health_checks_by_device.items():
+                    checks.sort(key=lambda x: x.timestamp, reverse=True)
+
+            devices_status_updated = False
+            for device in devices_to_check:
+                device_metrics: Dict[str, Any] = {}
+
+                # 3. Get latest metrics from pre-fetched dict
+                latest_metric = latest_metrics_by_device.get(device.id)
+                if latest_metric:
+                    device_metrics.update(
+                        {
+                            "cpu_percent": latest_metric.cpu_percent,
+                            "memory_percent": latest_metric.memory_percent,
+                            "disk_percent": latest_metric.disk_percent,
+                            "network_latency_ms": latest_metric.network_latency_ms,
+                            "error_rate": latest_metric.error_rate,
+                        }
+                    )
+
+                # 4. Get Flapping Count (last 1 hour)
+                device_metrics["flapping_count"] = 0.0
+
+                # 5. Get Consecutive Failures from pre-fetched dict
+                checks = health_checks_by_device.get(device.id, [])
+                consecutive_failures = 0
+                for check in checks:
+                    if not check.is_healthy:
+                        consecutive_failures += 1
+                    else:
+                        break
+                device_metrics["consecutive_failures"] = float(consecutive_failures)
+
+                # Sync Device Status with Health & Generate Offline Alert
+                try:
+                    status_changed = False
+                    if consecutive_failures >= 3:
+                        if device.status != "offline":
+                            device.status = "offline"  # type: ignore
+                            status_changed = True
+
+                    elif consecutive_failures == 0 and device.status == "offline":
+                        # Recover from offline
+                        device.status = "online"  # type: ignore
+                        status_changed = True
+
+                    if status_changed:
+                        session.add(device)
+                        devices_status_updated = True
+                except Exception as e:
+                    logger.error(f"Failed to sync device status: {e}")
+
+                # 6. Run Detection
+                score, reasons = detector.check_anomaly(device_metrics)
+
+                if score > 0:
+                    anomalies.append(
+                        {
+                            "device_id": device.device_id,
+                            "device_name": device.name,
+                            "score": round(score, 2),
+                            "reasons": reasons,
+                            "severity": "critical" if score >= 0.8 else "warning",
+                            "metrics": device_metrics,
+                            "timestamp": datetime.utcnow().isoformat(),
+                        }
+                    )
+
+            if devices_status_updated:
+                try:
+                    await session.commit()
+                except Exception as e:
+                    logger.error(f"Failed to commit device status changes: {e}")
+
+        # Sort by score descending
+        anomalies.sort(key=lambda x: float(str(x["score"])), reverse=True)
+
+        # Limit to top 5 anomalies
+        anomalies = anomalies[:5]
+
+        return {"count": len(anomalies), "anomalies": anomalies}
+
+    except Exception as e:
+        logger.error(f"Failed to detect anomalies: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Anomaly detection failed")
+
+
+@router.put("/alerts/{alert_id}/resolve", tags=["AI Insights"])
+async def resolve_alert(
+    alert_id: int,
+    user_id: Optional[str] = Query(None, description="User resolving the alert"),
+    notes: Optional[str] = Query(None, description="Resolution notes"),
+) -> Dict[str, Any]:
+    """Resolve a system alert manually."""
+    try:
+        db_service = await get_database_service()
+        async with db_service.get_session() as session:
+            result = await session.execute(select(Alert).where(Alert.id == alert_id))
+            alert = result.scalars().first()
+
+            if not alert:
+                raise HTTPException(status_code=404, detail="Alert not found")
+
+            alert.status = "resolved"  # type: ignore
+            alert.resolved_at = datetime.utcnow()  # type: ignore
+            alert.resolved_by = user_id or "manual_resolution"  # type: ignore
+            alert.resolution_notes = notes  # type: ignore
+
+            await session.commit()
+
+            return {
+                "status": "success",
+                "message": f"Alert {alert_id} resolved",
+                "alert": {
+                    "id": alert.id,
+                    "status": alert.status,
+                    "resolved_at": alert.resolved_at,
+                },
+            }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to resolve alert: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to resolve alert")
+
+
+# Helper for Singleton services to avoid re-initialization overhead
+_ai_services: Dict[str, Any] = {"llm": None, "knowledge": None, "memory": None}
+
+
+def get_ai_services() -> Any:
+    """Get singleton instances of AI services."""
+    if _ai_services["llm"] is None:
+        _ai_services["llm"] = LLMService()
+    if _ai_services["knowledge"] is None:
+        _ai_services["knowledge"] = SystemKnowledge(project_root)
+    if _ai_services["memory"] is None:
+        _ai_services["memory"] = DeviceMemory()
+    return _ai_services["llm"], _ai_services["knowledge"], _ai_services["memory"]
+
+
+@router.post("/query", tags=["AI Chat"])
+async def query_ai(
+    request: AIQueryRequest,
+    current_user: UserDict = Depends(require_user()),
+) -> Dict[str, Any]:
+    """Query the AI assistant."""
+    logger.info(
+        "AI query | device_id=%s | query_len=%d | user=%s",
+        request.device_id or "N/A",
+        len(request.query),
+        current_user.get("email"),
+    )
+    try:
+        # Use singletons for heavy services
+        llm, knowledge, memory = get_ai_services()
+        # ContextBuilder is lightweight
+        context_builder = ContextBuilder()
+
+        # 1. Build Short-Term Context (Conversation History)
+        short_term_context = ""
+        if request.history:
+            short_term_context = "\n[CONVERSATION HISTORY]\n"
+            short_term_context += "\n".join(
+                [
+                    f"{_sanitize_ai_input(msg.role, 'history-role')}: "
+                    f"{_sanitize_ai_input(msg.content, 'history')}"
+                    for msg in request.history[-5:]
+                ]
+            )
+
+        # 2. Build Long-Term Context (Vector Memory)
+        long_term_context = ""
+        try:
+            # Get Memory Stats (Self-Awareness)
+            mem_stats = memory.get_memory_stats()
+            long_term_context = (
+                f"\n[MEMORY SYSTEM STATUS]\n"
+                f"Total Memories Stored: {mem_stats['total_memories']}\n"
+            )
+
+            # Get Similar Memories
+            similar_memories = memory.query_similar(request.query)
+            if similar_memories:
+                long_term_context += "\n[RELEVANT MEMORIES]\n"
+                long_term_context += "\n".join(
+                    [f"- {m['content']}" for m in similar_memories]
+                )
+        except Exception as e:
+            logger.warning(f"Failed to query vector memory: {e}")
+
+        # 3. Build Real-Time System Context
+        db_service = await get_database_service()
+        async with db_service.get_session() as session:
+            # Get Sites with active Devices only (archived/unpaired/retired
+            # devices must not be visible to the AI).
+            result = await session.execute(select(Site).where(Site.is_active.is_(True)))
+            sites = result.scalars().all()
+            site_ids = [s.id for s in sites]
+            devices_by_site: dict = {}
+            all_active_devices: list = []
+            if site_ids:
+                dev_result = await session.execute(
+                    select(Device).where(
+                        Device.site_id.in_(site_ids),
+                        Device.is_active.is_(True),
+                    )
+                )
+                for dev in dev_result.scalars().all():
+                    devices_by_site.setdefault(dev.site_id, []).append(dev)
+                    all_active_devices.append(dev)
+
+            # Fleet summary: connectivity (heartbeat-based), health and mode.
+            online_count = sum(1 for d in all_active_devices if _device_is_online(d))
+            healthy_count = sum(
+                1 for d in all_active_devices if d.health_state == "healthy"
+            )
+            mode_counts: dict = {"simulated": 0, "emulated": 0, "real": 0}
+            for d in all_active_devices:
+                mode_counts[_device_mode(d)] += 1
+
+            site_context = "[CURRENT SYSTEM STATUS]\n"
+            site_context += f"Total Sites: {len(sites)}\n"
+            site_context += f"Total Active Devices: {len(all_active_devices)}\n"
+            site_context += f"Online Devices: {online_count}\n"
+            site_context += f"Healthy Devices: {healthy_count}\n"
+            site_context += (
+                f"Devices by Mode: {mode_counts['simulated']} simulated, "
+                f"{mode_counts['emulated']} emulated, {mode_counts['real']} real\n"
+            )
+            for site in sites:
+                site_context += f"- Site: {site.name} (ID: {site.site_id}), Location: {site.location}\n"
+                site_devices = devices_by_site.get(site.id, [])
+                if site_devices:
+                    site_context += "  Devices:\n"
+                    for d in site_devices:
+                        site_context += (
+                            f"    * Name: {d.name}\n"
+                            f"      ID: {d.device_id}\n"
+                            f"      Type: {d.device_type}\n"
+                            f"      Status: "
+                            f"{'online' if _device_is_online(d) else 'offline'}\n"
+                            f"      Health: {d.health_state or 'unknown'}\n"
+                            f"      Mode: {_device_mode(d)}\n"
+                            f"      IP: {d.ip_address or 'N/A'}\n"
+                        )
+
+            # Get Push Notification Stats (Last 24 hours)
+            one_day_ago = datetime.utcnow() - timedelta(days=1)
+            push_result = await session.execute(
+                select(
+                    func.count(PushNotificationLog.id),
+                    func.sum(
+                        case((PushNotificationLog.status == "delivered", 1), else_=0)
+                    ),
+                    func.avg(PushNotificationLog.latency_ms),
+                ).where(PushNotificationLog.sent_at >= one_day_ago)
+            )
+            total_push, delivered_push, avg_latency = push_result.one()
+
+            site_context += "\n[PUSH NOTIFICATION STATS (24h)]\n"
+            site_context += f"- Total Sent: {total_push or 0}\n"
+            site_context += f"- Delivered: {delivered_push or 0}\n"
+            if avg_latency:
+                site_context += f"- Avg Latency: {round(avg_latency, 2)}ms\n"
+
+            # Get Active Alerts for AI Context (only for active devices)
+            active_device_ids = select(Device.device_id).where(
+                Device.is_active.is_(True)
+            )
+            alerts_result = await session.execute(
+                select(Alert)
+                .where(
+                    Alert.status == "active",
+                    Alert.device_id.in_(active_device_ids),
+                )
+                .limit(20)
+            )
+            active_alerts = alerts_result.scalars().all()
+
+            site_context += "\n[ACTIVE SYSTEM ALERTS]\n"
+            if active_alerts:
+                for alert in active_alerts:
+                    site_context += (
+                        f"- **ALERT RECORD**:\n"
+                        f"  ID: #{alert.id}\n"
+                        f"  Severity: {alert.severity}\n"
+                        f"  Device: {alert.device_id}\n"
+                        f"  Title: {alert.title}\n"
+                        f"  Description: {alert.description}\n\n"
+                    )
+            else:
+                site_context += "No active alerts.\n"
+
+            # Get Job Context if relevant
+            job_context = await context_builder.get_job_context(session=session)
+
+            # 4. Assemble Final Context
+            full_context = f"{site_context}\n{job_context}\n{long_term_context}\n{short_term_context}"
+
+            if request.context:
+                sanitized_context = _sanitize_ai_input(request.context, "context")
+                full_context += f"\n[USER CONTEXT]\n{sanitized_context}"
+
+            if request.role:
+                sanitized_role = _sanitize_ai_input(request.role, "role")
+                full_context += f"\n[REQUESTER ROLE]\n{sanitized_role}"
+
+            if request.device_id:
+                full_context += f"\n[FOCUS DEVICE]\nID: {request.device_id}"
+
+            # Insert Defined System Roles to prevent hallucination
+            full_context += (
+                "\n[SYSTEM ROLES DEFINITIONS]\n"
+                "The HOMEPOT Client system currently defines the following roles:\n"
+                "1. 'Admin': Complete system access, including user management, logs, "
+                "and system configuration.\n"
+                "2. 'Engineer': Technical access, including device management, diagnostics, "
+                "and configurations (similar to Admin but focused on operations).\n"
+                "3. 'Client' (User): Limited access, primarily for monitoring assigned devices, views, and "
+                "receiving notifications.\n"
+                "There are currently NO other defined roles (e.g., 'Agent Operator' is NOT "
+                "a valid role).\n"
+            )
+
+            # 5. Validation-First Gates: Gate A -> B -> C (see ai/gates)
+            # AI inference is a downstream consumer of the operational data
+            # (paper Sec. 4). Gates no longer block inference outright --
+            # instead they determine how much trust is attached to the
+            # resulting recommendation (see [VALIDATION TRUST STATUS] below
+            # and the `trust` field always returned to the caller), so a
+            # technician can see, per-recommendation, how much confidence to
+            # place in it. Gates run BEFORE the AI Insights below because
+            # Gate B's result gates whether those insights are computed at
+            # all (see next step).
+            device_int_id = None
+            if request.device_id:
+                device_int_id = await DeviceResolver(session).resolve(request.device_id)
+
+            known_alert_ids = [alert.id for alert in active_alerts]
+            gate_context = GateContext(
+                session=session,
+                device_id=request.device_id,
+                device_int_id=device_int_id,
+                assembled_context=full_context,
+                known_alert_ids=known_alert_ids,
+            )
+            envelope = build_envelope_from_config()
+            trust = await envelope.run(gate_context)
+
+            # 6. AI Insights: surface the SAME anomaly/failure signals a
+            # technician would see elsewhere in the product, so the LLM's
+            # answer is grounded in all information available, not just raw
+            # metrics/alerts. Gated on Gate B (data integrity) having PASSED:
+            # anomaly detection and failure prediction are themselves derived
+            # from the same telemetry Gate B validates, so computing and
+            # presenting them when that data has already failed integrity
+            # checks would hand the LLM a confident-looking conclusion
+            # ("Risk Level: CRITICAL") built on data we've just determined is
+            # NOT trustworthy -- undermining the trust signal below. This
+            # also avoids the extra anomaly-scan/failure-prediction DB
+            # queries on every chat turn once the data is already known to
+            # be stale/incomplete/invalid. Best-effort: a failure here must
+            # not break chat.
+            data_integrity_passed = any(
+                g.gate_id == "B" and g.status == GateStatus.PASS
+                for g in trust.gate_results
+            )
+            if data_integrity_passed:
+                full_context += "\n[AI INSIGHTS: SYSTEM ANOMALIES]\n"
+                try:
+                    anomalies_payload = await get_system_anomalies()
+                    detected = anomalies_payload.get("anomalies") or []
+                    if detected:
+                        for a in detected:
+                            full_context += (
+                                f"- Device: {a.get('device_name')} ({a.get('device_id')}), "
+                                f"Severity: {a.get('severity')}, Score: {a.get('score')}, "
+                                f"Reasons: {', '.join(a.get('reasons') or [])}\n"
+                            )
+                    else:
+                        full_context += "No active anomalies detected.\n"
+                except Exception as e:
+                    logger.warning(
+                        f"Failed to gather anomaly insights for AI context: {e}"
+                    )
+                    full_context += "Anomaly insights unavailable.\n"
+
+                if request.device_id:
+                    try:
+                        prediction = await FailurePredictor().predict_device_failure(
+                            request.device_id
+                        )
+                        risk_factor_names = [
+                            f.get("name", "Unknown")
+                            for f in prediction.get("risk_factors", [])
+                        ]
+                        full_context += (
+                            "\n[AI INSIGHTS: FAILURE PREDICTION]\n"
+                            f"Device: {request.device_id}\n"
+                            f"Risk Level: {prediction.get('risk_level', 'UNKNOWN')}\n"
+                            f"Failure Probability: {prediction.get('failure_probability', 0.0)}\n"
+                            f"Risk Factors: {', '.join(risk_factor_names)}\n"
+                        )
+                    except Exception as e:
+                        logger.warning(
+                            f"Failed to gather failure prediction for AI context: {e}"
+                        )
+                        full_context += (
+                            "\n[AI INSIGHTS: FAILURE PREDICTION]\nUnavailable.\n"
+                        )
+            else:
+                full_context += (
+                    "\n[AI INSIGHTS]\n"
+                    "Skipped: Gate B (data integrity) did not pass for this request, so "
+                    "anomaly-detection and failure-prediction analytics are withheld rather "
+                    "than presented as trustworthy derived conclusions.\n"
+                )
+
+            # 7. Re-validate Gate C against the FINAL context (base context +
+            # AI Insights appended above). Appending the insights blocks can
+            # grow the prompt past Gate C's bounded-context threshold, or in
+            # principle disturb its stable-block/ID-rule checks -- Gate C's
+            # whole purpose is "is the context about to be sent to the LLM
+            # fit for ingestion" (paper Sec. 4.3), so that question has to be
+            # re-asked against what's *actually* being sent, not just the
+            # pre-insight draft. We re-run the SAME Gate C instance used
+            # above (same overrides/thresholds) rather than introducing a
+            # new gate, since this is the same concern (context readiness),
+            # just re-checked at the point the context is complete. Only
+            # meaningful when the first pass was fully actionable -- if it
+            # already failed, trust is already capped and the insights
+            # section above was replaced with a short skip note that can't
+            # newly violate Gate C.
+            if trust.is_actionable:
+                gate_c = next(g for g in envelope.gates if g.gate_id == "C")
+                post_insight_result = await gate_c.run(
+                    GateContext(
+                        session=session,
+                        device_id=request.device_id,
+                        device_int_id=device_int_id,
+                        assembled_context=full_context,
+                        known_alert_ids=known_alert_ids,
+                    )
+                )
+                trust.gate_results.append(post_insight_result)
+                if post_insight_result.status != GateStatus.PASS:
+                    trust = EnvelopeResult(
+                        gate_results=trust.gate_results,
+                        trust_mode=MODE_CAUTIONARY,
+                        trust_score=min(
+                            trust.trust_score, MODE_CAUTIONARY.trust_ceiling
+                        ),
+                        failed_gate_id="C (post-insight)",
+                    )
+
+        # Surface the trust envelope directly in the context so the LLM can
+        # see -- and is instructed (below) to reflect in its answer -- exactly
+        # how much confidence to attach to what follows. The LLM always runs;
+        # gates condition its instructions rather than gating inference itself.
+        full_context += (
+            "\n[VALIDATION TRUST STATUS]\n"
+            f"{trust.label()}\n"
+            f"Trust score: {trust.trust_score:.2f} (0.0 = no trust, 1.0 = fully grounded)\n"
+            f"Actionable: {'yes' if trust.is_actionable else 'no'}\n"
+        )
+        if not trust.is_actionable:
+            full_context += (
+                f"Failed gate: {trust.failed_gate_id} "
+                f"({trust.trust_mode.description})\n"
+            )
+            # Surface a SHORT, plain-English reason so the LLM can be
+            # specific ("telemetry is 340s stale") instead of just naming
+            # the failed gate -- without dumping the full per-check
+            # evidence tree (row counts, thresholds, timestamps) into the
+            # prompt. That full detail is reserved for the dashboard's
+            # expandable trust banner; the LLM only gets a 1-2 line digest
+            # so its answer -- and a technician reading it -- isn't
+            # overwhelmed with raw validation data.
+            failing_gate = trust.gate_results[-1] if trust.gate_results else None
+            failing_reasons = [
+                c.message
+                for c in (failing_gate.checks if failing_gate else [])
+                if not c.passed and c.message
+            ]
+            if failing_reasons:
+                full_context += f"Reason: {' '.join(failing_reasons[:2])}\n"
+
+        # Get static system knowledge (no DB access needed beyond this point)
+        system_knowledge = knowledge.get_full_system_context()
+
+        response = llm.generate_response(
+            prompt=request.query,
+            context=full_context,
+            system_prompt=(
+                "IDENTITY:\n"
+                "You are the HOMEPOT System Diagnostics AI, an advanced operational "
+                "assistant for the HOMEPOT Client ecosystem.\n"
+                "Your goal is to monitor, diagnose, and explain the behavior of "
+                "IoT devices, sites, and the platform itself.\n\n"
+                "CAPABILITIES & DATA SOURCES:\n"
+                "1. Real-Time Database (PostgreSQL): You have access to live device "
+                "metrics, site status, and push notification stats.\n"
+                "2. Long-Term Memory (ChromaDB): You can recall past anomalies, "
+                "error patterns, and resolutions to identify recurring issues.\n"
+                "3. System Knowledge: You are self-aware of the codebase structure, "
+                "file locations, and documentation.\n"
+                "4. Short-Term Memory: You maintain context of the current conversation.\n"
+                "5. AI Insights: anomaly detection and failure-prediction signals are "
+                "provided in [AI INSIGHTS: ...] blocks.\n\n"
+                "SYSTEM CONTEXT:\n"
+                f"{system_knowledge}\n\n"
+                "INSTRUCTIONS:\n"
+                "- Scope your answers to the HOMEPOT system. Do not answer unrelated "
+                "general knowledge questions.\n"
+                "- Use the provided [CURRENT SYSTEM STATUS], [AI INSIGHTS: ...], and "
+                "[RELEVANT MEMORIES] blocks to ground your answers in facts.\n"
+                "- If you don't know something, admit it. Do not hallucinate system details.\n"
+                "- When listing alerts, use the explicit 'ID' field provided in "
+                "the [ACTIVE SYSTEM ALERTS] section. Format as '#ID'. Do not guess IDs.\n"
+                "- Uncertainty protocol: if telemetry or context evidence is incomplete, "
+                "state the gap explicitly instead of extrapolating an unsupported system state.\n"
+                "- Trust protocol: your context includes a [VALIDATION TRUST STATUS] block. "
+                "If 'Actionable' is 'no', you MUST explicitly tell the user their data could "
+                "not be fully validated (name the failed gate and trust score) and limit your "
+                "answer to cautionary, non-actionable observations -- never phrase a low-trust "
+                "answer as a confirmed diagnosis or a directive to act. If a 'Reason' line is "
+                "present, weave it in as ONE short supporting sentence (e.g. 'because telemetry "
+                "is 340s stale') -- do not list every validation check or invent additional "
+                "statistics beyond what's given.\n"
+                "- Be concise, professional, and technical where appropriate."
+            ),
+        )
+        logger.info(
+            "AI query done | device_id=%s | mode=%s | score=%.2f | actionable=%s",
+            request.device_id or "N/A",
+            trust.trust_mode.label,
+            trust.trust_score,
+            trust.is_actionable,
+        )
+
+        try:
+            audit = get_audit_logger()
+            await audit.log_event(
+                event_type=AuditEventType.AI_QUERY,
+                description=(
+                    f"AI query | device={request.device_id or 'N/A'} | "
+                    f"mode={trust.trust_mode.label} | score={trust.trust_score:.2f}"
+                ),
+                user_id=current_user.get("user_id"),
+                event_metadata={
+                    "query_length": len(request.query),
+                    "trust_mode": trust.trust_mode.label,
+                    "trust_score": trust.trust_score,
+                    "actionable": trust.is_actionable,
+                    "failed_gate": trust.failed_gate_id,
+                },
+            )
+            if not trust.is_actionable:
+                await audit.log_event(
+                    event_type=AuditEventType.AI_GATE_FAILURE,
+                    description=(
+                        f"Gate {trust.failed_gate_id} failed | device={request.device_id or 'N/A'}"
+                    ),
+                    user_id=current_user.get("user_id"),
+                    event_metadata={
+                        "trust_score": trust.trust_score,
+                        "failed_gate": trust.failed_gate_id,
+                    },
+                )
+        except Exception:
+            logger.warning("Failed to persist AI audit event", exc_info=True)
+
+        return {
+            "response": response,
+            "timestamp": datetime.utcnow().isoformat(),
+            "trust": trust.to_dict(),
+        }
+    except Exception as e:
+        logger.error(f"AI query failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/insights/push-notifications", tags=["AI Insights"])
+async def get_push_insights(
+    device_id: Optional[str] = Query(
+        None, description="Optional device ID to filter by"
+    ),
+    days: int = Query(default=7, ge=1, le=90, description="Analysis period in days"),
+) -> Dict[str, Any]:
+    """Get AI analytics for push notification delivery."""
+    try:
+        analytics = AIAnalyticsService()
+        analytics_result = await analytics.get_push_notification_analytics(
+            device_id, days
+        )
+
+        # If the analytics service indicates an error, raise a generic HTTP error
+        if (
+            isinstance(analytics_result, dict)
+            and analytics_result.get("status") == "error"
+        ):
+            logger.error(
+                "Push notification analytics service reported an error: %s",
+                analytics_result.get("message"),
+            )
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to analyze push notifications",
+            )
+
+        return analytics_result
+    except HTTPException:
+        # Re-raise HTTPException without modification
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get push insights: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500, detail="Failed to analyze push notifications"
+        )
+
+
+@router.get("/insights/device/{device_id}", tags=["AI Insights"])
+async def get_device_insights(
+    device_id: str,
+    days: int = Query(default=30, ge=1, le=90, description="Analysis period in days"),
+    current_user: UserDict = Depends(require_user()),
+    db: SASession = Depends(get_db),
+) -> Dict[str, Any]:
+    """Get comprehensive AI insights for a device.
+
+    Includes performance trends, health score, and predictive analysis.
+    Restricted to users with access to the device's site.
+    """
+    try:
+        analytics = AIAnalyticsService()
+
+        # Archived/unpaired/retired devices must not be visible to the AI.
+        db_service = await get_database_service()
+        async with db_service.get_session() as session:
+            device_result = await session.execute(
+                select(Device).where(Device.device_id == device_id)
+            )
+            device = device_result.scalar_one_or_none()
+        if not device or not device.is_active:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Device '{device_id}' not found or not active",
+            )
+
+        # Scope to the caller's site/tenant access.
+        db_user = cast(
+            "User",
+            db.query(User).filter(User.email == current_user["email"]).first(),
+        )
+        verify_device_belongs_to_user(db_user, device, db, minimum_role="viewer")
+
+        # Get performance trends
+        performance = await analytics.get_device_performance_trends(device_id, days)
+
+        # Get error analysis
+        errors = await analytics.get_error_frequency_analysis(
+            device_id, days=min(days, 7)
+        )
+
+        # Get failure prediction
+        predictor = FailurePredictor()
+        failure_prediction = await predictor.predict_device_failure(device_id)
+
+        return {
+            "device_id": device_id,
+            "analysis_period_days": days,
+            "performance": performance,
+            "errors": errors,
+            "failure_prediction": failure_prediction,
+            "generated_at": datetime.utcnow().isoformat(),
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get device insights: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to generate device insights due to an internal error.",
+        )
+
+
+@router.get("/insights/site/{site_id}", tags=["AI Insights"])
+async def get_site_insights(
+    site_id: str,
+    days: int = Query(default=30, ge=1, le=90, description="Analysis period in days"),
+    current_user: UserDict = Depends(require_user()),
+    db: SASession = Depends(get_db),
+) -> Dict[str, Any]:
+    """Get comprehensive AI insights for a site.
+
+    Includes job patterns, optimal scheduling windows, and site-level analytics.
+    Restricted to users with access to the site.
+    """
+    try:
+        analytics = AIAnalyticsService()
+
+        # Archived sites must not be visible to the AI.
+        db_service = await get_database_service()
+        async with db_service.get_session() as session:
+            site_result = await session.execute(
+                select(Site).where(Site.site_id == site_id)
+            )
+            site = site_result.scalar_one_or_none()
+        if not site or not site.is_active:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Site '{site_id}' not found or not active",
+            )
+
+        # Scope to the caller's site/tenant access.
+        db_user = cast(
+            "User",
+            db.query(User).filter(User.email == current_user["email"]).first(),
+        )
+        verify_site_access_for_user(db_user, site_id, db, minimum_role="viewer")
+
+        # Get job outcome patterns
+        job_patterns = await analytics.get_job_outcome_patterns(site_id, days)
+
+        # Get optimal scheduling windows
+        scheduling = await analytics.get_optimal_scheduling_windows(site_id)
+
+        # Get configuration change impact
+        config_impact = await analytics.get_configuration_impact_analysis(
+            site_id, days=min(days, 14)
+        )
+
+        return {
+            "site_id": site_id,
+            "analysis_period_days": days,
+            "job_patterns": job_patterns,
+            "scheduling_windows": scheduling,
+            "configuration_impact": config_impact,
+            "generated_at": datetime.utcnow().isoformat(),
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get site insights: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to generate site insights due to an internal error.",
+        )
+
+
+# ==================== Prediction Endpoints ====================
+
+
+@router.get("/predictions/failure/{device_id}", tags=["AI Predictions"])
+async def predict_device_failure(
+    device_id: str,
+    window_hours: int = Query(
+        default=24, ge=1, le=168, description="Prediction window in hours (max 7 days)"
+    ),
+    current_user: UserDict = Depends(require_user()),
+    db: SASession = Depends(get_db),
+) -> Dict[str, Any]:
+    """Predict likelihood of device failure in the next N hours.
+
+    Returns probability, risk level, contributing factors, and recommendations.
+    Restricted to users with access to the device's site.
+    """
+    try:
+        # Archived/unpaired/retired devices must not be visible to the AI.
+        db_service = await get_database_service()
+        async with db_service.get_session() as session:
+            device_result = await session.execute(
+                select(Device).where(Device.device_id == device_id)
+            )
+            device = device_result.scalar_one_or_none()
+        if not device or not device.is_active:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Device '{device_id}' not found or not active",
+            )
+
+        # Scope to the caller's site/tenant access.
+        db_user = cast(
+            "User",
+            db.query(User).filter(User.email == current_user["email"]).first(),
+        )
+        verify_device_belongs_to_user(db_user, device, db, minimum_role="viewer")
+
+        predictor = FailurePredictor()
+        prediction = await predictor.predict_device_failure(device_id, window_hours)
+
+        return prediction
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to predict device failure: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to predict device failure due to an internal error.",
+        )
+
+
+@router.get("/predictions/at-risk-devices", tags=["AI Predictions"])
+async def get_at_risk_devices(
+    site_id: Optional[str] = Query(None, description="Optional site filter"),
+    min_risk_level: str = Query(
+        default="medium",
+        pattern="^(low|medium|high|critical)$",
+        description="Minimum risk level to include",
+    ),
+) -> Dict[str, Any]:
+    """Identify all devices currently at risk of failure.
+
+    Returns prioritized list with risk levels and recommendations.
+    """
+    try:
+        predictor = FailurePredictor()
+        at_risk = await predictor.identify_at_risk_devices(site_id, min_risk_level)
+
+        return at_risk
+
+    except Exception as e:
+        logger.error(f"Failed to identify at-risk devices: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to identify at-risk devices due to an internal error.",
+        )
+
+
+# ==================== Recommendation Endpoints ====================
+
+
+@router.post("/recommendations/schedule-job", tags=["AI Recommendations"])
+async def recommend_job_schedule(request: JobScheduleRequest) -> Dict[str, Any]:
+    """Get AI recommendation for optimal job execution time.
+
+    Considers site schedules, historical success rates, and current conditions.
+    """
+    try:
+        scheduler = PredictiveJobScheduler()
+
+        # Parse earliest_start if provided
+        earliest_start = None
+        if request.earliest_start:
+            try:
+                earliest_start = datetime.fromisoformat(request.earliest_start)
+            except ValueError:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Invalid earliest_start format. Use ISO 8601 format.",
+                )
+
+        recommendation = await scheduler.recommend_execution_time(
+            site_id=request.site_id,
+            job_priority=request.job_priority,
+            earliest_start=earliest_start,
+        )
+
+        return recommendation
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to recommend job schedule: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to generate scheduling recommendation due to an internal error.",
+        )
+
+
+@router.post("/recommendations/success-probability", tags=["AI Recommendations"])
+async def calculate_success_probability(
+    request: SuccessProbabilityRequest,
+) -> Dict[str, Any]:
+    """Calculate probability of job success at a specific time.
+
+    Analyzes device health, historical patterns, and site conditions.
+    """
+    try:
+        scheduler = PredictiveJobScheduler()
+
+        # Parse scheduled_time
+        try:
+            scheduled_time = datetime.fromisoformat(request.scheduled_time)
+        except ValueError:
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid scheduled_time format. Use ISO 8601 format.",
+            )
+
+        probability = await scheduler.calculate_success_probability(
+            site_id=request.site_id,
+            device_id=request.device_id,
+            scheduled_time=scheduled_time,
+        )
+
+        return probability
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to calculate success probability: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to calculate success probability due to an internal error.",
+        )
+
+
+@router.get("/recommendations/optimal-windows/{site_id}", tags=["AI Recommendations"])
+async def get_optimal_windows(
+    site_id: str,
+    day_of_week: Optional[int] = Query(
+        None, ge=0, le=6, description="Optional day filter (0=Monday, 6=Sunday)"
+    ),
+) -> Dict[str, Any]:
+    """Get optimal scheduling windows for a site.
+
+    Returns recommended time windows that avoid peak hours and maintenance periods.
+    """
+    try:
+        analytics = AIAnalyticsService()
+        windows = await analytics.get_optimal_scheduling_windows(site_id, day_of_week)
+
+        return windows
+
+    except Exception as e:
+        logger.error(f"Failed to get optimal windows: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to get optimal scheduling windows due to an internal error.",
+        )
+
+
+# ==================== Health Forecast Endpoint ====================
+
+
+@router.get("/health-forecast", tags=["AI Insights"])
+async def get_health_forecast(
+    site_id: Optional[str] = Query(None, description="Optional site filter"),
+    forecast_hours: int = Query(
+        default=24, ge=1, le=168, description="Forecast period in hours"
+    ),
+) -> Dict[str, Any]:
+    """Get health forecast for site or all devices.
+
+    Provides predictive view of system health in the forecast window.
+    """
+    try:
+        predictor = FailurePredictor()
+
+        # Get all at-risk devices
+        at_risk = await predictor.identify_at_risk_devices(
+            site_id, min_risk_level="low"
+        )
+
+        # Analyze overall health trend
+        total_devices = at_risk.get("total_devices_analyzed", 0)
+        at_risk_count = at_risk.get("at_risk_count", 0)
+        risk_dist = at_risk.get("risk_distribution", {})
+
+        # Calculate overall health score
+        if total_devices > 0:
+            health_percentage = ((total_devices - at_risk_count) / total_devices) * 100
+        else:
+            health_percentage = 100.0
+
+        # Determine forecast status
+        if risk_dist.get("critical", 0) > 0:
+            forecast_status = "critical"
+            forecast_message = "Critical issues require immediate attention"
+        elif risk_dist.get("high", 0) > 0:
+            forecast_status = "warning"
+            forecast_message = "High-risk devices need attention soon"
+        elif at_risk_count > 0:
+            forecast_status = "moderate"
+            forecast_message = "Some devices show elevated risk"
+        else:
+            forecast_status = "healthy"
+            forecast_message = "All systems operating normally"
+
+        return {
+            "site_id": site_id,
+            "forecast_hours": forecast_hours,
+            "overall_health_score": round(health_percentage, 2),
+            "forecast_status": forecast_status,
+            "forecast_message": forecast_message,
+            "total_devices": total_devices,
+            "healthy_devices": total_devices - at_risk_count,
+            "at_risk_devices": at_risk_count,
+            "risk_distribution": risk_dist,
+            "top_concerns": at_risk.get("at_risk_devices", [])[:5],  # Top 5
+            "generated_at": datetime.utcnow().isoformat(),
+        }
+
+    except Exception as e:
+        logger.error(f"Failed to generate health forecast: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to generate health forecast due to an internal error.",
+        )
+
+
+# ==================== System Status ====================
+
+
+@router.get("/status", tags=["AI Insights"])
+async def get_ai_system_status() -> Dict[str, Any]:
+    """Get AI system status and capabilities."""
+    return {
+        "status": "operational",
+        "version": "1.0.0",
+        "capabilities": {
+            "device_insights": True,
+            "site_insights": True,
+            "failure_prediction": True,
+            "at_risk_detection": True,
+            "job_scheduling": True,
+            "success_probability": True,
+            "health_forecast": True,
+        },
+        "data_sources": {
+            "device_metrics": "real-time (5s intervals)",
+            "job_outcomes": "historical",
+            "device_state_history": "real-time",
+            "error_logs": "real-time",
+            "configuration_history": "real-time",
+            "site_analytics": "aggregated",
+            "device_analytics": "aggregated",
+            "site_operating_schedules": "configured",
+        },
+        "timestamp": datetime.utcnow().isoformat(),
+    }

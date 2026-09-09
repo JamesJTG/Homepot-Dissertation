@@ -1,0 +1,233 @@
+# HOMEPOT Scripts
+
+## Website Management
+
+### `start-dashboard.sh`
+
+Starts the complete HOMEPOT website with backend and frontend.
+
+**Usage:**
+```bash
+./scripts/start-dashboard.sh
+```
+
+**What it does:**
+1. Checks prerequisites (Python, Node.js, PostgreSQL)
+2. Verifies ports 8000 and 5173 are available
+3. Activates Python virtual environment (root `venv/`)
+4. Starts backend server on http://localhost:8000
+5. Starts frontend dev server on http://localhost:5173
+6. Opens website in default browser
+
+**Logs:**
+- Backend: `logs/backend.log`
+- Frontend: `logs/frontend.log`
+
+**PIDs:**
+- Backend: `logs/backend.pid`
+- Frontend: `logs/frontend.pid`
+
+### `stop-dashboard.sh`
+
+Stops both backend and frontend servers.
+
+**Usage:**
+```bash
+./scripts/stop-dashboard.sh
+```
+
+**What it does:**
+1. Kills backend process (port 8000)
+2. Kills frontend process (port 5173)
+3. Cleans up PID files
+
+## Environment Management
+
+## Database Password Management
+
+### `setup-pgpass.sh`
+
+Sets up PostgreSQL `.pgpass` file for password-free database access.
+
+**Usage:**
+```bash
+./scripts/setup-pgpass.sh
+```
+
+**What it does:**
+1. Creates `~/.pgpass` file in your home directory
+2. Adds HOMEPOT database credentials
+3. Sets correct permissions (600 - owner read/write only)
+4. Allows all `psql` commands to run without password prompts
+
+**After running this script:**
+```bash
+# No password prompt!
+psql -h localhost -U homepot_user -d homepot_db
+
+# Scripts work seamlessly
+./scripts/query-db.sh count
+./scripts/init-postgresql.sh
+```
+
+**Security:**
+- The `.pgpass` file is only readable by you (chmod 600)
+- Standard PostgreSQL password file (used by all psql tools)
+- Alternative to typing passwords or storing in scripts
+
+**Credentials stored:**
+- Host: `localhost`
+- Port: `5432`
+- Database: `homepot_db`
+- User: `homepot_user`
+- Password: `homepot_dev_password`
+
+**To remove:**
+```bash
+sed -i '/homepot_db/d' ~/.pgpass
+```
+
+### Password Approaches in Scripts
+
+All scripts use standardized password handling:
+
+1. **`.pgpass` file** (Recommended for developers):
+   - Run `./scripts/setup-pgpass.sh` once
+   - All future psql commands work without prompts
+   - Most convenient for daily development
+
+2. **`PGPASSWORD` environment variable** (Used in scripts):
+   - Scripts automatically set: `export PGPASSWORD='homepot_dev_password'`
+   - Works in CI/CD environments
+   - No manual setup required
+
+3. **Connection string** (Alternative):
+   ```bash
+   psql "postgresql://homepot_user:homepot_dev_password@localhost:5432/homepot_db"
+   ```
+
+**All three methods use the same credentials:**
+- User: `homepot_user`
+- Password: `homepot_dev_password`
+- Database: `homepot_db`
+
+## Important Notes
+
+### Virtual Environment
+- The project uses a **root-level virtual environment** at `.venv/`
+- Do NOT use `backend/venv/` (old structure, no longer used)
+- Always activate with: `source .venv/bin/activate`
+
+### bcrypt Compatibility
+- The project requires `bcrypt==4.1.3` for authentication to work
+- This is pinned in `backend/requirements.txt`
+- Version 5.x has breaking changes with `passlib`
+
+### PostgreSQL Database
+- Backend requires PostgreSQL to be running
+- Connection details in `backend/.env` or environment variables
+- Default: `postgresql://homepot_user:homepot_dev_password@localhost/homepot_db`
+- **Setup once:** Run `./scripts/setup-pgpass.sh` for password-free access
+
+## Troubleshooting
+
+### "ModuleNotFoundError: No module named 'homepot'"
+**Solution:** Install the package in editable mode:
+```bash
+cd backend
+pip install -e .
+```
+
+### "Authentication failed" or "500 error on signup"
+**Solution:** Verify bcrypt version:
+```bash
+pip show bcrypt  # Should show 4.1.3
+pip install bcrypt==4.1.3  # If not
+```
+
+### Ports already in use
+**Solution:** Stop existing services:
+```bash
+./scripts/stop-dashboard.sh
+# Or manually:
+lsof -ti:8000 | xargs kill -9
+lsof -ti:5173 | xargs kill -9
+```
+
+### PostgreSQL not running
+**Solution:** Start PostgreSQL service:
+```bash
+sudo systemctl start postgresql  # Linux systemd
+# Or:
+sudo service postgresql start    # Linux sysvinit
+# Or:
+brew services start postgresql   # macOS Homebrew
+```
+
+## For Frontend Developers
+
+If you're working on the frontend UI/UX:
+
+1. **Start the backend first:**
+   ```bash
+   cd backend
+   source ../venv/bin/activate
+   python -m uvicorn homepot.app.main:app --host 0.0.0.0 --port 8000 --reload
+   ```
+
+2. **Then start frontend in another terminal:**
+   ```bash
+   cd frontend
+   npm run dev
+   ```
+
+3. **Access the website:**
+   - Frontend: http://localhost:5173
+   - Backend API: http://localhost:8000
+   - API Docs: http://localhost:8000/docs
+
+4. **Test credentials:**
+   - Email: `admin@homepot.com`
+   - Password: `homepot_dev_password`
+   - Role: ENGINEER
+
+**What it does:**
+1. Starts backend server on http://localhost:8000
+2. Authenticates test user
+3. Tests user activity tracking (page views, clicks, searches)
+4. Verifies automatic API request logging
+5. Queries and displays collected analytics data
+6. Shows summary of infrastructure status
+7. Displays backend logs
+8. Cleans up (stops backend)
+
+**Validates:**
+- Authentication endpoint
+- User activity logging (`POST /api/v1/analytics/user-activity`)
+- Automatic API request logging (middleware)
+- Query endpoints (`GET /api/v1/analytics/user-activities`, `/api/v1/analytics/api-requests`)
+- Database write operations
+- JSON response formatting
+
+**Use cases:**
+- Pre-deployment verification
+- Bug hunting and debugging
+- Demonstrating analytics functionality
+- Continuous integration testing
+
+**Python Utility:**
+The actual validation logic is in `backend/utils/validate_analytics.py` (Python utility).
+
+**Manual usage** (if backend is already running):
+```bash
+python3 backend/utils/validate_analytics.py <email> <password>
+
+# Example:
+python3 backend/utils/validate_analytics.py analytics-test@example.com testpass123
+```
+
+## See Also
+
+- [Complete Website Setup Guide](../docs/complete-website-setup.md) - Full setup instructions
+- [Website Testing Guide](../docs/website-testing-guide.md) - Testing checklist
+- [Development Guide](../docs/development-guide.md) - General development info

@@ -1,0 +1,149 @@
+"""Imports for the app."""
+
+import logging
+from logging.handlers import RotatingFileHandler
+import os
+
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+
+from homepot.app.api.API_v1.Api import api_v1_router
+from homepot.app.middleware.analytics import AnalyticsMiddleware
+from homepot.app.utils.limiter import limiter
+from homepot.client import HomepotClient
+from homepot.config import get_settings
+from homepot.database import get_database_service
+
+# Configure Log Rotation
+# This ensures backend.log doesn't grow infinitely
+# The log dir is resolved relative to this package so it is independent of the
+# process CWD: <repo-root>/logs
+try:
+    log_dir = os.path.abspath(
+        os.path.join(os.path.dirname(__file__), "..", "..", "..", "..", "logs")
+    )
+    os.makedirs(log_dir, exist_ok=True)
+    log_file = os.path.join(log_dir, "backend.log")
+
+    # Rotate at 10MB, keep 5 backups
+    handler = RotatingFileHandler(
+        log_file, maxBytes=10 * 1024 * 1024, backupCount=5, encoding="utf-8"
+    )
+    handler.setFormatter(
+        logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+    )
+
+    # Configure root logger to capture all logs (including uvicorn)
+    root_logger = logging.getLogger()
+    root_logger.setLevel(logging.INFO)
+    root_logger.addHandler(handler)
+
+    # Remove default handlers to avoid duplication if needed,
+    # but keeping them ensures console output still works for development.
+
+except Exception as e:
+    print(f"Failed to setup log rotation: {e}")
+
+cors_origins = get_settings().cors.cors_origins
+
+# App declaration
+app = FastAPI(
+    title="HOMEPOT Client API",
+    description="REST API for HOMEPOT device management and monitoring",
+    version="0.1.0",
+    docs_url="/docs",
+    redoc_url="/redoc",
+    # lifespan=lifespan,
+)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)  # type: ignore
+
+
+# Create tables
+# database.CreateTables()
+
+# CORS settings — origins from CORS_ORIGINS env var, fall back to localhost defaults
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=cors_origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Analytics middleware for automatic API request logging
+app.add_middleware(AnalyticsMiddleware, enable_logging=True)
+
+
+# Add to openAPI documentation
+# config.idp.add_swagger_config(app)
+
+
+# TEST BASE URL API (insecure/test)
+@app.get("/")
+def root() -> dict:
+    """Root endpoint to test if the API is alive."""
+    return {"message": "I Am Alive"}
+
+
+@app.on_event("startup")
+async def initialize_database() -> None:
+    """Initialize database schema when the API process starts."""
+    await get_database_service()
+
+
+@app.on_event("startup")
+async def start_agent_manager() -> None:
+    """Auto-start the device agent simulator when the API starts.
+
+    Previously the agent manager only started lazily when an endpoint (e.g.
+    ``/health/system-pulse``) first called ``get_agent_manager()``, so after a
+    backend restart no simulated data collection ran until something pinged it.
+    Starting it here makes simulated/emulated device data collection resume
+    automatically on startup (respecting ``enable_agent_simulation``).
+    """
+    if not get_settings().enable_agent_simulation:
+        logging.getLogger(__name__).info(
+            "Agent simulation disabled — skipping agent manager startup"
+        )
+        return
+    try:
+        from homepot.agents import get_agent_manager
+
+        await get_agent_manager()
+        logging.getLogger(__name__).info("Agent manager started on API startup")
+    except Exception as e:
+        logging.getLogger(__name__).warning(
+            f"Failed to start agent manager on startup: {e}"
+        )
+
+
+@app.on_event("startup")
+async def initialize_client() -> None:
+    """Connect the HOMEPOT client and wire it into the endpoints that need it.
+
+    Without this, ``/api/v1/health`` and the ``/api/v1/client/*``
+    endpoints (``Depends(get_client)``) always return 503 "Client not
+    available" because their module-level ``client_instance`` is never set.
+    """
+    from homepot.app.api.API_v1.Endpoints import ClientEndpoint, HealthEndpoint
+
+    client_instance = HomepotClient()
+    try:
+        await client_instance.connect()
+        HealthEndpoint.client_instance = client_instance
+        ClientEndpoint.client_instance = client_instance
+        logging.getLogger(__name__).info("HOMEPOT Client connected successfully")
+    except Exception as e:
+        logging.getLogger(__name__).warning(f"Failed to connect client on startup: {e}")
+
+
+# Incluse all routes from API v1
+app.include_router(api_v1_router, prefix="/api/v1")
+
+if __name__ == "__main__":
+    import uvicorn
+
+    uvicorn.run(app, host="0.0.0.0", port=8000, log_level="info")  # nosec B104

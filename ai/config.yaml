@@ -1,0 +1,72 @@
+app:
+  name: "System Diagnostics AI"
+  version: "1.0.0"
+  host: "0.0.0.0"
+  port: 8001
+
+llm:
+  # The active model is read here. A 4 GiB GPU like the Quadro P620 tops out
+  # around 4B parameters at Q4; qwen3:4b is a valid alternative but runs its
+  # (non-disableable) thinking mode, making each request several minutes long.
+  # See README section "Switching LLM Models Locally" for sizing guidance and
+  # measured data.
+  model: "llama3.2"
+  base_url: "http://localhost:11434"
+  temperature: 0.7
+  context_window: 4096
+
+memory:
+  chroma_path: "data/chroma_db"
+  collection_name: "device_logs"
+  embedding_model: "all-MiniLM-L6-v2"
+
+database:
+  # Use PostgreSQL from docker-compose
+  url: "postgresql://homepot_user:homepot_dev_password@localhost:5432/homepot_db"
+  # url: "sqlite:///homepot.db"
+
+# Anomaly detection for device telemetry (ai/anomaly_detection.py).
+#
+# The detector is rule-based: each metric that crosses its threshold adds a
+# weighted contribution to an anomaly score (0.0-1.0). Higher-impact signals
+# (flapping, consecutive failures) carry more weight than resource usage.
+# Thresholds below are the values at which a metric is flagged as anomalous.
+#
+# `sensitivity` scales the final anomaly score (score * sensitivity, capped at
+# 1.0) -- lower values report a smaller score for the same raw signal. It does
+# not change which thresholds fire, only the reported score.
+# `window_size` is a reserved key and is not currently applied by the detector.
+anomaly_detection:
+  sensitivity: 0.8
+  window_size: 50
+  thresholds:
+    network_latency_ms: 200          # ms; above this flags "High Latency"
+    cpu_percent: 90.0                # %; above this flags "High CPU"
+    memory_percent: 90.0             # %; above this flags "High Memory"
+    disk_percent: 90.0               # %; above this flags "High Disk Usage"
+    error_rate: 0.05                 # ratio (5%); above this flags "High Error Rate"
+    max_flapping_count: 5            # state changes per hour; above this flags "High Instability"
+    consecutive_failures: 3          # health-check failures in a row; at/above this flags "System Failure"
+
+# Validation-gate thresholds for the AI trust envelope (ai/gates/*).
+#
+# This is the single source of truth for tunable gate behaviour. The in-code
+# DEFAULT_* constants (ai/gates/gate_b.py, gate_c.py) are used only as a
+# fallback when a key is missing here, so change thresholds in THIS file, not
+# in code.
+#
+# TESTING NOTE: continuity_gap_seconds and completeness_max_null_ratio are
+# deliberately relaxed for the current development/testing phase so Gate B
+# passes on rehearsal data and the downstream gates (C/D/E) can be exercised.
+# Restore the paper's values (continuity <= 60s, null ratio 0) for real-device
+# testing so Gate B rejects stale/incomplete telemetry.
+validation_gates:
+  gate_b:
+    freshness_max_age_seconds: 300   # 5-minute heartbeat baseline
+    continuity_gap_seconds: 1800     # TESTING: relaxed 30 min (paper: 60s)
+    sustained_gap_seconds: 3600      # "gaps > 60 min"
+    completeness_max_null_ratio: 0.01  # TESTING: allow up to 1% nulls (real: 0)
+  gate_c:
+    required_blocks:
+      - "[CURRENT SYSTEM STATUS]"
+    max_context_chars: 16000          # ~4k tokens at 4 chars/token heuristic

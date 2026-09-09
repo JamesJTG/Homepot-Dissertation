@@ -1,0 +1,240 @@
+import React, { useState, useEffect } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
+import { ArrowLeft, Loader2, Save } from 'lucide-react';
+import api from '@/services/api';
+import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
+import useFormData from '@/hooks/useFormData';
+
+export default function SiteForm() {
+  const navigate = useNavigate();
+  const { id } = useParams();
+  const isEditMode = !!id;
+
+  const [formData, setFormData, handleChange] = useFormData({
+    name: '',
+    site_id: '',
+    location: '',
+    latitude: '',
+    longitude: '',
+    description: '',
+  });
+  const [loading, setLoading] = useState(false);
+  const [initialLoading, setInitialLoading] = useState(isEditMode);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    if (!id) {
+      setInitialLoading(false);
+      return;
+    }
+
+    const fetchSite = async () => {
+      try {
+        const data = await api.sites.get(id);
+        setFormData({
+          name: data.name || '',
+          site_id: data.site_id || data.id || '',
+          location: data.location || '',
+          latitude: data.latitude || '',
+          longitude: data.longitude || '',
+          description: data.description || '',
+        });
+      } catch (err) {
+        console.error('Failed to fetch site:', err);
+        setError('Failed to load site details.');
+      } finally {
+        setInitialLoading(false);
+      }
+    };
+
+    fetchSite();
+  }, [id, setFormData]);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setError(null);
+    setLoading(true);
+
+    try {
+      if (isEditMode) {
+        await api.sites.update(id, formData);
+      } else {
+        await api.sites.create(formData);
+      }
+      navigate('/sites');
+    } catch (err) {
+      console.error('Failed to save site:', err);
+      setError(api.apiHelpers?.formatError(err) || 'Failed to save site. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (initialLoading) {
+    return (
+      <div className="flex justify-center items-center h-64">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="h-full overflow-y-auto bg-background text-foreground p-2">
+      <div className="container mx-auto max-w-2xl">
+        <Button
+          variant="ghost"
+          onClick={() => navigate('/sites')}
+          className="mb-2 pl-0 hover:pl-1 transition-all text-gray-400 hover:text-white hover:bg-transparent"
+        >
+          <ArrowLeft className="h-4 w-4 mr-2" />
+          Back to Sites
+        </Button>
+
+        <div className="mb-4">
+          <h1 className="text-xl font-bold tracking-tight text-white">
+            {isEditMode ? 'Edit Site' : 'Create New Site'}
+          </h1>
+          <p className="text-sm text-gray-400">
+            {isEditMode
+              ? 'Update site details and configuration.'
+              : 'Add a new physical location to your network.'}
+          </p>
+        </div>
+
+        {error && (
+          <div className="bg-red-500/10 border border-red-500/20 text-red-400 px-4 py-3 rounded-md mb-4 text-sm">
+            {error}
+          </div>
+        )}
+
+        <Card className="p-4 bg-card border-border">
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div className="space-y-2">
+              <label htmlFor="name" className="text-sm font-medium leading-none text-gray-300">
+                Site Name <span className="text-red-400">*</span>
+              </label>
+              <input
+                id="name"
+                name="name"
+                type="text"
+                required
+                className="flex h-10 w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground shadow-sm transition-colors file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:border-primary disabled:cursor-not-allowed disabled:opacity-50"
+                placeholder="e.g. Main Office, Warehouse A"
+                value={formData.name}
+                onChange={handleChange}
+              />
+            </div>
+
+            {isEditMode && (
+              <div className="space-y-2">
+                <label htmlFor="site_id" className="text-sm font-medium leading-none text-gray-300">
+                  Site ID
+                </label>
+                <input
+                  id="site_id"
+                  name="site_id"
+                  type="text"
+                  disabled
+                  className="flex h-10 w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground shadow-sm transition-colors file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:border-primary disabled:cursor-not-allowed disabled:opacity-50"
+                  value={formData.site_id}
+                  onChange={handleChange}
+                />
+              </div>
+            )}
+
+            <div className="space-y-2">
+              <label htmlFor="location" className="text-sm font-medium leading-none text-gray-300">
+                Location
+              </label>
+              <input
+                id="location"
+                name="location"
+                type="text"
+                className="flex h-10 w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground shadow-sm transition-colors file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:border-primary disabled:cursor-not-allowed disabled:opacity-50"
+                placeholder="e.g. New York, NY"
+                value={formData.location}
+                onChange={handleChange}
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <label
+                  htmlFor="latitude"
+                  className="text-sm font-medium leading-none text-gray-300"
+                >
+                  Latitude
+                </label>
+                <input
+                  id="latitude"
+                  name="latitude"
+                  type="number"
+                  step="any"
+                  className="flex h-10 w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground shadow-sm transition-colors file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:border-primary disabled:cursor-not-allowed disabled:opacity-50"
+                  placeholder="e.g. 40.7128"
+                  value={formData.latitude}
+                  onChange={handleChange}
+                />
+              </div>
+              <div className="space-y-2">
+                <label
+                  htmlFor="longitude"
+                  className="text-sm font-medium leading-none text-gray-300"
+                >
+                  Longitude
+                </label>
+                <input
+                  id="longitude"
+                  name="longitude"
+                  type="number"
+                  step="any"
+                  className="flex h-10 w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground shadow-sm transition-colors file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:border-primary disabled:cursor-not-allowed disabled:opacity-50"
+                  placeholder="e.g. -74.0060"
+                  value={formData.longitude}
+                  onChange={handleChange}
+                />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <label
+                htmlFor="description"
+                className="text-sm font-medium leading-none text-gray-300"
+              >
+                Description
+              </label>
+              <textarea
+                id="description"
+                name="description"
+                className="flex min-h-[80px] w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:border-primary disabled:cursor-not-allowed disabled:opacity-50"
+                placeholder="Optional description of this site..."
+                value={formData.description}
+                onChange={handleChange}
+              />
+            </div>
+
+            <div className="flex justify-end gap-4 pt-4">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => navigate('/sites')}
+                className="border-[#1f2735] bg-transparent text-gray-300 hover:bg-[#1f2735] hover:text-white"
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                disabled={loading}
+                className="bg-teal-600 hover:bg-teal-700 text-white"
+              >
+                {loading && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                {isEditMode ? 'Update Site' : 'Create Site'}
+              </Button>
+            </div>
+          </form>
+        </Card>
+      </div>
+    </div>
+  );
+}
