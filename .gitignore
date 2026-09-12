@@ -14,6 +14,7 @@
 __pycache__/
 *.py[cod]
 *$py.class
+*.egg-info/
 
 # Python virtual environments
 .venv/
@@ -35,6 +36,16 @@ env/
 .ruff_cache/
 .coverage
 htmlcov/
+
+# ------------------
+# Node / frontend dependencies
+# ------------------
+node_modules/
+
+# ------------------
+# Generated research analysis outputs
+# ------------------
+research/diagnostic_reliability/analysis/outputs/
 
 # ------------------
 # IDE-specific files
