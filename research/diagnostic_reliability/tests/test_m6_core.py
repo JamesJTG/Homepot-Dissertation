@@ -20,7 +20,10 @@ from research.diagnostic_reliability.taxonomy import (
     EvidenceSufficiency,
     FaultLabel,
 )
-from research.diagnostic_reliability.uncertainty import diagnostic_entropy, modal_fraction
+from research.diagnostic_reliability.uncertainty import (
+    diagnostic_entropy,
+    modal_fraction,
+)
 
 
 def _fixed_scenario(fault=FaultLabel.CPU_SATURATION):
@@ -40,6 +43,7 @@ def test_scenario_is_deterministic():
 def test_stale_transform_preserves_fault_pattern_but_moves_timestamps():
     fresh = _fixed_scenario()
     stale = apply_evidence_condition(fresh, EvidenceCondition.STALE)
+
     assert stale.fault == fresh.fault
     assert stale.telemetry[-1].cpu_percent == fresh.telemetry[-1].cpu_percent
     assert stale.telemetry[-1].timestamp < fresh.telemetry[-1].timestamp
@@ -47,36 +51,142 @@ def test_stale_transform_preserves_fault_pattern_but_moves_timestamps():
 
 def test_ground_truth_not_in_model_context():
     scenario = _fixed_scenario()
+
     context = build_model_context(
         scenario,
-        validation={"trust_mode": "grounded", "trust_score": 1.0, "actionable": True},
+        validation={
+            "trust_mode": "grounded",
+            "trust_score": 1.0,
+            "actionable": True,
+        },
     )
+
     assert scenario.fault.value not in context
     assert "[OPERATIONAL TELEMETRY]" in context
 
 
+def test_approved_validation_fields_are_visible():
+    scenario = _fixed_scenario()
+
+    context = build_model_context(
+        scenario,
+        validation={
+            "trust_mode": "grounded",
+            "trust_score": 0.75,
+            "actionable": False,
+            "failed_gate_id": "B",
+        },
+    )
+
+    assert "trust_mode: grounded" in context
+    assert "trust_score: 0.75" in context
+    assert "actionable: False" in context
+    assert "failed_gate_id: B" in context
+
+
+def test_unapproved_validation_fields_are_not_visible():
+    scenario = _fixed_scenario()
+
+    validation = {
+        "trust_mode": "grounded",
+        "trust_score": 0.75,
+        "actionable": False,
+        "failed_gate_id": "B",
+        "fault": "NETWORK_DEGRADATION",
+        "scenario_family": "ND-3",
+        "scenario_id": "NETWORK_DEGRADATION_ND-3_017",
+        "seed": 17,
+        "expected_diagnosis": "NETWORK_DEGRADATION",
+        "injection_parameters": {
+            "latency_multiplier": 12,
+        },
+        "anomaly_reason": "Injected network degradation",
+    }
+
+    context = build_model_context(
+        scenario,
+        validation=validation,
+    )
+
+    assert "NETWORK_DEGRADATION" not in context
+    assert "ND-3" not in context
+    assert "NETWORK_DEGRADATION_ND-3_017" not in context
+    assert "expected_diagnosis" not in context
+    assert "scenario_family" not in context
+    assert "scenario_id" not in context
+    assert "injection_parameters" not in context
+    assert "latency_multiplier" not in context
+    assert "anomaly_reason" not in context
+
+
+def test_scenario_private_metadata_not_rendered_in_model_context():
+    scenario = _fixed_scenario()
+
+    context = build_model_context(scenario)
+
+    assert scenario.fault.value not in context
+    assert scenario.scenario_id not in context
+    assert scenario.scenario_family not in context
+    assert "seed:" not in context
+    assert "seed=" not in context
+
+
+def test_validation_section_is_omitted_when_no_safe_fields_exist():
+    scenario = _fixed_scenario()
+
+    context = build_model_context(
+        scenario,
+        validation={
+            "fault": "CPU_SATURATION",
+            "scenario_family": "CS-1",
+            "expected_diagnosis": "CPU_SATURATION",
+        },
+    )
+
+    assert "[VALIDATION STATUS]" not in context
+    assert "CPU_SATURATION" not in context
+    assert "CS-1" not in context
+
+
 def test_expected_sufficiency():
-    assert expected_sufficiency(EvidenceCondition.COMPLETE_FRESH) is EvidenceSufficiency.SUFFICIENT
-    assert expected_sufficiency(EvidenceCondition.STALE) is EvidenceSufficiency.INSUFFICIENT
+    assert (
+        expected_sufficiency(EvidenceCondition.COMPLETE_FRESH)
+        is EvidenceSufficiency.SUFFICIENT
+    )
+    assert (
+        expected_sufficiency(EvidenceCondition.STALE)
+        is EvidenceSufficiency.INSUFFICIENT
+    )
 
 
 def test_parser_accepts_valid_response():
-    parsed = parse_diagnosis(json.dumps({
-        "diagnosis": "CPU_SATURATION",
-        "confidence": 0.81,
-        "explanation": "Sustained CPU utilisation is above the operational threshold."
-    }))
+    parsed = parse_diagnosis(
+        json.dumps(
+            {
+                "diagnosis": "CPU_SATURATION",
+                "confidence": 0.81,
+                "explanation": (
+                    "Sustained CPU utilisation is above the operational threshold."
+                ),
+            }
+        )
+    )
+
     assert parsed.diagnosis is DiagnosisLabel.CPU_SATURATION
     assert parsed.confidence == 0.81
 
 
 def test_parser_rejects_unknown_label():
     with pytest.raises(ValueError):
-        parse_diagnosis(json.dumps({
-            "diagnosis": "MAGIC_FAULT",
-            "confidence": 0.5,
-            "explanation": "x"
-        }))
+        parse_diagnosis(
+            json.dumps(
+                {
+                    "diagnosis": "MAGIC_FAULT",
+                    "confidence": 0.5,
+                    "explanation": "x",
+                }
+            )
+        )
 
 
 def test_scoring_separates_correctness_from_appropriate_abstention():
@@ -85,6 +195,7 @@ def test_scoring_separates_correctness_from_appropriate_abstention():
         DiagnosisLabel.CPU_SATURATION,
         EvidenceSufficiency.SUFFICIENT,
     )
+
     assert correct.diagnostic_correctness == 1
     assert correct.error_category is ErrorCategory.CORRECT
 
@@ -93,6 +204,7 @@ def test_scoring_separates_correctness_from_appropriate_abstention():
         DiagnosisLabel.UNKNOWN,
         EvidenceSufficiency.INSUFFICIENT,
     )
+
     assert abstain.diagnostic_correctness is None
     assert abstain.decision_appropriateness == 1
     assert abstain.error_category is ErrorCategory.APPROPRIATE_ABSTENTION
@@ -100,6 +212,7 @@ def test_scoring_separates_correctness_from_appropriate_abstention():
 
 def test_entropy_is_zero_for_complete_agreement():
     labels = [DiagnosisLabel.CPU_SATURATION] * 5
+
     assert diagnostic_entropy(labels) == 0.0
     assert modal_fraction(labels) == 1.0
 
@@ -111,29 +224,47 @@ def test_entropy_detects_disagreement():
         DiagnosisLabel.MEMORY_PRESSURE,
         DiagnosisLabel.NETWORK_DEGRADATION,
     ]
+
     assert diagnostic_entropy(labels) > 0.0
     assert modal_fraction(labels) == 0.5
 
 
 def test_repeated_runner_reuses_same_context():
     calls = []
+
     def fake_generate(prompt, context, system_prompt):
         calls.append((prompt, context, system_prompt))
-        return json.dumps({
-            "diagnosis": "CPU_SATURATION",
-            "confidence": 0.8,
-            "explanation": "CPU evidence is persistently elevated."
-        })
+
+        return json.dumps(
+            {
+                "diagnosis": "CPU_SATURATION",
+                "confidence": 0.8,
+                "explanation": "CPU evidence is persistently elevated.",
+            }
+        )
 
     context = "fixed-context"
-    results = run_repeated_generations(fake_generate, context=context, n_generations=3)
+
+    results = run_repeated_generations(
+        fake_generate,
+        context=context,
+        n_generations=3,
+    )
+
     assert len(results) == 3
     assert [call[1] for call in calls] == [context, context, context]
 
 
 def test_gate_b_summary_preserves_check_level_evidence():
-    from ai.gates.base import CheckResult, EvidenceRef, GateResult, GateStatus
-    from research.diagnostic_reliability.validation_integration import gate_b_summary
+    from ai.gates.base import (
+        CheckResult,
+        EvidenceRef,
+        GateResult,
+        GateStatus,
+    )
+    from research.diagnostic_reliability.validation_integration import (
+        gate_b_summary,
+    )
 
     result = GateResult(
         gate_id="B",
@@ -145,11 +276,21 @@ def test_gate_b_summary_preserves_check_level_evidence():
                 name="Freshness",
                 passed=False,
                 message="stale",
-                evidence=[EvidenceRef(table="device_metrics", threshold=300)],
+                evidence=[
+                    EvidenceRef(
+                        table="device_metrics",
+                        threshold=300,
+                    )
+                ],
             )
         ],
     )
+
     summary = gate_b_summary(result)
+
     assert summary["status"] == "fail"
     assert summary["checks"]["B.freshness"]["passed"] is False
-    assert summary["checks"]["B.freshness"]["evidence"][0]["threshold"] == 300
+    assert (
+        summary["checks"]["B.freshness"]["evidence"][0]["threshold"]
+        == 300
+    )

@@ -28,7 +28,7 @@ def _service_process_failure(seed: int = 42):
     """Generate AF-1 service process failure."""
 
     return generate_scenario(
-        fault=FaultLabel.APPLICATION_ERROR,
+        fault=FaultLabel.APPLICATION_FAILURE,
         scenario_family=AF1_FAMILY,
         seed=seed,
         end_time=FIXED_END,
@@ -39,7 +39,7 @@ def _dependency_failure(seed: int = 42):
     """Generate AF-2 dependency/service failure."""
 
     return generate_scenario(
-        fault=FaultLabel.APPLICATION_ERROR,
+        fault=FaultLabel.APPLICATION_FAILURE,
         scenario_family=AF2_FAMILY,
         seed=seed,
         end_time=FIXED_END,
@@ -50,7 +50,7 @@ def _application_error_burst(seed: int = 42):
     """Generate AF-3 application error burst."""
 
     return generate_scenario(
-        fault=FaultLabel.APPLICATION_ERROR,
+        fault=FaultLabel.APPLICATION_FAILURE,
         scenario_family=AF3_FAMILY,
         seed=seed,
         end_time=FIXED_END,
@@ -73,7 +73,7 @@ def test_af1_uses_expected_family_and_fault():
     scenario = _service_process_failure()
 
     assert scenario.scenario_family == AF1_FAMILY
-    assert scenario.fault == FaultLabel.APPLICATION_ERROR
+    assert scenario.fault == FaultLabel.APPLICATION_FAILURE
 
 
 def test_af1_begins_with_low_error_rate():
@@ -197,7 +197,7 @@ def test_af2_uses_expected_family_and_fault():
     scenario = _dependency_failure()
 
     assert scenario.scenario_family == AF2_FAMILY
-    assert scenario.fault == FaultLabel.APPLICATION_ERROR
+    assert scenario.fault == FaultLabel.APPLICATION_FAILURE
 
 
 def test_af2_begins_with_low_error_rate():
@@ -231,7 +231,7 @@ def test_af2_reaches_high_application_error_rate():
     ) > 0.10
 
 
-def test_af2_has_moderate_latency_degradation():
+def test_af2_has_substantial_latency_degradation():
     scenario = _dependency_failure()
 
     late_latency = [
@@ -239,16 +239,34 @@ def test_af2_has_moderate_latency_degradation():
         for point in scenario.telemetry[-6:]
     ]
 
-    assert sum(late_latency) / len(late_latency) > 150.0
+    assert sum(late_latency) / len(late_latency) > 400.0
 
 
-def test_af2_does_not_reach_severe_network_latency():
+def test_af2_can_reach_severe_latency():
     scenario = _dependency_failure()
 
     assert max(
         point.network_latency_ms
         for point in scenario.telemetry
-    ) < 400.0
+    ) > 500.0
+
+
+def test_af2_high_errors_emerge_before_severe_latency():
+    scenario = _dependency_failure()
+
+    first_high_error = next(
+        idx
+        for idx, point in enumerate(scenario.telemetry)
+        if point.error_rate >= 0.05
+    )
+
+    first_severe_latency = next(
+        idx
+        for idx, point in enumerate(scenario.telemetry)
+        if point.network_latency_ms > 500.0
+    )
+
+    assert first_high_error < first_severe_latency
 
 
 def test_af2_queue_accumulates():
@@ -303,7 +321,7 @@ def test_af3_uses_expected_family_and_fault():
     scenario = _application_error_burst()
 
     assert scenario.scenario_family == AF3_FAMILY
-    assert scenario.fault == FaultLabel.APPLICATION_ERROR
+    assert scenario.fault == FaultLabel.APPLICATION_FAILURE
 
 
 def test_af3_contains_multiple_high_error_bursts():
@@ -449,6 +467,6 @@ def test_application_families_share_same_private_fault_label():
     ]
 
     assert all(
-        scenario.fault == FaultLabel.APPLICATION_ERROR
+        scenario.fault == FaultLabel.APPLICATION_FAILURE
         for scenario in scenarios
     )

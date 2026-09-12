@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 from datetime import datetime
+import re
 
 from ..taxonomy import FaultLabel
 
@@ -54,6 +55,37 @@ class Scenario:
                 for point in self.telemetry
             ],
         }
+
+
+def build_scenario_id(
+    *,
+    fault: FaultLabel,
+    scenario_family: str,
+    instance: int,
+) -> str:
+    """Build a stable identifier for one controlled scenario instance.
+
+    The identifier includes both the fault class and the short scenario-family
+    code so that instance numbers may safely restart within each family.
+
+    Example:
+        CPU_SATURATION_CS-1_001
+    """
+
+    if instance < 1:
+        raise ValueError("instance must be at least 1.")
+
+    match = re.match(r"^([A-Z]+-\d+)(?:_|$)", scenario_family)
+
+    if match is None:
+        raise ValueError(
+            "scenario_family must begin with a family code such as "
+            f"'CS-1', 'ND-2', or 'N-3'. Received: {scenario_family!r}"
+        )
+
+    family_code = match.group(1)
+
+    return f"{fault.value}_{family_code}_{instance:03d}"
 
 
 def clamp(value: float, low: float, high: float) -> float:

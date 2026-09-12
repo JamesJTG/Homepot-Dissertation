@@ -99,17 +99,17 @@ FAMILIES = (
 
     FamilySpec(
         "AF-1",
-        FaultLabel.APPLICATION_ERROR,
+        FaultLabel.APPLICATION_FAILURE,
         AF1_FAMILY,
     ),
     FamilySpec(
         "AF-2",
-        FaultLabel.APPLICATION_ERROR,
+        FaultLabel.APPLICATION_FAILURE,
         AF2_FAMILY,
     ),
     FamilySpec(
         "AF-3",
-        FaultLabel.APPLICATION_ERROR,
+        FaultLabel.APPLICATION_FAILURE,
         AF3_FAMILY,
     ),
 

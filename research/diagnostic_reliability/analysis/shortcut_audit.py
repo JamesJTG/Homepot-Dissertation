@@ -111,17 +111,17 @@ FAMILIES = (
 
     FamilySpec(
         "AF-1",
-        FaultLabel.APPLICATION_ERROR,
+        FaultLabel.APPLICATION_FAILURE,
         AF1_FAMILY,
     ),
     FamilySpec(
         "AF-2",
-        FaultLabel.APPLICATION_ERROR,
+        FaultLabel.APPLICATION_FAILURE,
         AF2_FAMILY,
     ),
     FamilySpec(
         "AF-3",
-        FaultLabel.APPLICATION_ERROR,
+        FaultLabel.APPLICATION_FAILURE,
         AF3_FAMILY,
     ),
 
@@ -285,7 +285,7 @@ def print_class_prevalence(
         FaultLabel.CPU_SATURATION,
         FaultLabel.NETWORK_DEGRADATION,
         FaultLabel.MEMORY_PRESSURE,
-        FaultLabel.APPLICATION_ERROR,
+        FaultLabel.APPLICATION_FAILURE,
         FaultLabel.NORMAL,
     )
 
@@ -336,7 +336,7 @@ def print_exclusivity_warnings(
         FaultLabel.CPU_SATURATION,
         FaultLabel.NETWORK_DEGRADATION,
         FaultLabel.MEMORY_PRESSURE,
-        FaultLabel.APPLICATION_ERROR,
+        FaultLabel.APPLICATION_FAILURE,
         FaultLabel.NORMAL,
     )
 

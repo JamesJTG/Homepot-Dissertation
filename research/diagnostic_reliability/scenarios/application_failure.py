@@ -11,8 +11,8 @@ AF-2
 AF-3
     Intermittent application error burst.
 
-The current diagnostic taxonomy still uses FaultLabel.APPLICATION_ERROR.
-The scenario-family terminology uses APPLICATION_FAILURE because that is the
+The diagnostic taxonomy and scenario-family terminology use
+APPLICATION_FAILURE because that is the
 research-level fault class adopted for the dissertation.
 """
 
@@ -21,13 +21,13 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 import random
 
-from .common import Scenario, TelemetryPoint, clamp
+from .common import Scenario, TelemetryPoint, build_scenario_id, clamp
 from ..taxonomy import FaultLabel
 
 
 AF1_FAMILY = "AF-1_SERVICE_PROCESS_FAILURE"
 AF2_FAMILY = "AF-2_DEPENDENCY_SERVICE_FAILURE"
-AF3_FAMILY = "AF-3_APPLICATION_ERROR_BURST"
+AF3_FAMILY = "AF-3_APPLICATION_FAILURE_BURST"
 
 
 SUPPORTED_APPLICATION_FAMILIES = {
@@ -166,13 +166,14 @@ def _generate_dependency_service_failure(
     """Generate AF-2: dependency or downstream service failure.
 
     The application itself initially appears healthy. A downstream dependency
-    then becomes unreliable, producing sustained request failures and moderate
-    response-time degradation.
+    then becomes unreliable, producing sustained request failures, queue
+    accumulation and progressively degraded response times.
 
-    Latency is affected but deliberately remains below the severe values used
-    by the NETWORK_DEGRADATION families. This allows the combination of error
-    rate, queue accumulation and moderate latency to represent a dependency
-    failure rather than a primary network fault.
+    Severe latency can emerge as a consequence of the failing dependency.
+    This deliberately overlaps with a symptom also observed in primary network
+    degradation. The diagnostic distinction therefore depends on the temporal
+    ordering and combination of errors, queue growth and latency rather than a
+    single latency threshold.
     """
 
     points: list[TelemetryPoint] = []
@@ -199,7 +200,7 @@ def _generate_dependency_service_failure(
             cpu_target = 51.0 + (7.0 * dependency_progress)
             memory_target = 54.0 + (5.0 * dependency_progress)
 
-            latency_target = 125.0 + (125.0 * dependency_progress)
+            latency_target = 125.0 + (475.0 * dependency_progress)
 
             error_target = 0.045 + (0.075 * dependency_progress)
 
@@ -221,7 +222,7 @@ def _generate_dependency_service_failure(
         latency = clamp(
             latency_target + rng.uniform(-25.0, 25.0),
             20.0,
-            320.0,
+            700.0,
         )
 
         error_rate = clamp(
@@ -460,10 +461,14 @@ def generate_application_failure_scenario(
         )
 
     return Scenario(
-        scenario_id=f"{FaultLabel.APPLICATION_ERROR.value}_{instance:03d}",
+        scenario_id=build_scenario_id(
+    fault=FaultLabel.APPLICATION_FAILURE,
+    scenario_family=scenario_family,
+    instance=instance,
+),
         scenario_family=scenario_family,
         device_id=device_id,
-        fault=FaultLabel.APPLICATION_ERROR,
+        fault=FaultLabel.APPLICATION_FAILURE,
         seed=seed,
         telemetry=telemetry,
     )

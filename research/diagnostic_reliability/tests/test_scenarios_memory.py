@@ -100,18 +100,26 @@ def test_mp1_memory_increases_over_time():
     assert sum(late) / len(late) > sum(early) / len(early)
 
 
-def test_mp1_reaches_severe_memory_pressure():
+def test_mp1_has_substantial_memory_accumulation():
     scenario = _memory_gradual()
 
-    memory = [
+    early = [
         point.memory_percent
-        for point in scenario.telemetry
+        for point in scenario.telemetry[:6]
     ]
 
-    assert max(memory) > 90.0
+    late = [
+        point.memory_percent
+        for point in scenario.telemetry[-6:]
+    ]
+
+    early_mean = sum(early) / len(early)
+    late_mean = sum(late) / len(late)
+
+    assert late_mean > early_mean + 20.0
 
 
-def test_mp1_late_memory_is_persistently_high():
+def test_mp1_late_memory_is_persistently_elevated():
     scenario = _memory_gradual()
 
     late = [
@@ -119,7 +127,16 @@ def test_mp1_late_memory_is_persistently_high():
         for point in scenario.telemetry[-6:]
     ]
 
-    assert sum(value > 80.0 for value in late) >= 5
+    assert sum(value > 78.0 for value in late) >= 5
+
+
+def test_mp1_does_not_depend_on_severe_memory_threshold():
+    scenario = _memory_gradual()
+
+    assert max(
+        point.memory_percent
+        for point in scenario.telemetry
+    ) < 90.0
 
 
 def test_mp1_cpu_remains_below_cpu_saturation():
@@ -212,6 +229,15 @@ def test_mp2_does_not_require_gradual_accumulation():
     assert abs(late_mean - early_mean) < 8.0
 
 
+def test_mp2_reaches_severe_memory_range():
+    scenario = _memory_sustained()
+
+    assert max(
+        point.memory_percent
+        for point in scenario.telemetry
+    ) > 90.0
+
+
 def test_mp2_cpu_remains_below_cpu_saturation():
     scenario = _memory_sustained()
 
@@ -261,7 +287,7 @@ def test_mp3_uses_expected_family_and_fault():
     assert scenario.fault == FaultLabel.MEMORY_PRESSURE
 
 
-def test_mp3_memory_reaches_pressure_regime():
+def test_mp3_memory_becomes_elevated():
     scenario = _memory_queue()
 
     memory = [
@@ -269,7 +295,7 @@ def test_mp3_memory_reaches_pressure_regime():
         for point in scenario.telemetry
     ]
 
-    assert max(memory) > 85.0
+    assert max(memory) > 80.0
 
 
 def test_mp3_queue_grows_substantially():
@@ -310,12 +336,21 @@ def test_mp3_memory_and_queue_are_jointly_elevated_late():
         point
         for point in late_points
         if (
-            point.memory_percent > 80.0
+            point.memory_percent > 75.0
             and point.queue_depth >= 20
         )
     ]
 
     assert len(joint_points) >= 4
+
+
+def test_mp3_remains_below_sustained_severe_memory_range():
+    scenario = _memory_queue()
+
+    assert max(
+        point.memory_percent
+        for point in scenario.telemetry
+    ) < 90.0
 
 
 def test_mp3_cpu_remains_below_cpu_saturation():

@@ -22,7 +22,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 import random
 
-from .common import Scenario, TelemetryPoint, clamp
+from .common import Scenario, TelemetryPoint, build_scenario_id, clamp
 from ..taxonomy import FaultLabel
 
 
@@ -144,10 +144,11 @@ def _generate_high_but_valid_workload(
     """Generate N-2: sustained high-but-valid workload.
 
     CPU utilisation, memory use, connection count, queue depth and latency are
-    higher than in N-1, representing a busy device or service.
+    elevated, representing a busy device or service.
 
-    The workload remains stable and does not develop into one of the injected
-    fault regimes. Error rate remains low.
+    Memory may enter a high-utilisation range, but the workload remains stable
+    and does not develop into a progressive or sustained severe memory-pressure
+    fault. Error rate remains low.
 
     This family tests whether elevated resource utilisation alone causes a
     false-positive fault diagnosis.
@@ -159,7 +160,7 @@ def _generate_high_but_valid_workload(
         progress = idx / max(1, n_points - 1)
 
         cpu_target = 68.0 + (6.0 * progress)
-        memory_target = 62.0 + (4.0 * progress)
+        memory_target = 76.0 + (7.0 * progress)
         latency_target = 100.0 + (45.0 * progress)
         error_target = 0.009 + (0.003 * progress)
         connection_target = 34.0 + (8.0 * progress)
@@ -173,8 +174,8 @@ def _generate_high_but_valid_workload(
 
         memory = clamp(
             memory_target + rng.uniform(-2.0, 2.0),
-            45.0,
-            70.0,
+            55.0,
+            85.0,
         )
 
         latency = clamp(
@@ -246,8 +247,9 @@ def _generate_brief_benign_transient(
     Most of the window represents normal operation.
 
     A short-lived workload disturbance temporarily elevates CPU, latency,
-    queue depth and error rate. The disturbance then resolves without becoming
-    a persistent operational fault.
+    queue depth and error rate. CPU may briefly enter a severe utilisation
+    range, but the disturbance resolves without becoming a persistent
+    operational fault.
 
     This family intentionally provides abnormal-looking individual
     observations while preserving NORMAL as the private ground-truth label.
@@ -264,7 +266,7 @@ def _generate_brief_benign_transient(
                 idx - transient_start
             ) / max(1, transient_end - transient_start - 1)
 
-            cpu_target = 84.0 + (5.0 * transient_progress)
+            cpu_target = 87.0 + (6.0 * transient_progress)
             memory_target = 61.0 + (3.0 * transient_progress)
             latency_target = 280.0 + (90.0 * transient_progress)
             error_target = 0.028 + (0.012 * transient_progress)
@@ -275,9 +277,7 @@ def _generate_brief_benign_transient(
             distance_after = idx - transient_end
 
             if 0 <= distance_after < 3:
-                recovery_progress = (
-                    distance_after / 2.0
-                )
+                recovery_progress = distance_after / 2.0
 
                 cpu_target = 70.0 - (18.0 * recovery_progress)
                 memory_target = 60.0 - (5.0 * recovery_progress)
@@ -297,7 +297,7 @@ def _generate_brief_benign_transient(
         cpu = clamp(
             cpu_target + rng.uniform(-2.5, 2.5),
             25.0,
-            94.0,
+            96.0,
         )
 
         memory = clamp(
@@ -408,7 +408,11 @@ def generate_normal_scenario(
         )
 
     return Scenario(
-        scenario_id=f"{FaultLabel.NORMAL.value}_{instance:03d}",
+        scenario_id=build_scenario_id(
+    fault=FaultLabel.NORMAL,
+    scenario_family=scenario_family,
+    instance=instance,
+),
         scenario_family=scenario_family,
         device_id=device_id,
         fault=FaultLabel.NORMAL,

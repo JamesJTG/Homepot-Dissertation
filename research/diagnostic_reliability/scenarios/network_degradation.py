@@ -19,7 +19,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 import random
 
-from .common import Scenario, TelemetryPoint, clamp
+from .common import Scenario, TelemetryPoint, build_scenario_id, clamp
 from ..taxonomy import FaultLabel
 
 
@@ -450,7 +450,11 @@ def generate_network_degradation_scenario(
         )
 
     return Scenario(
-        scenario_id=f"{FaultLabel.NETWORK_DEGRADATION.value}_{instance:03d}",
+       scenario_id=build_scenario_id(
+    fault=FaultLabel.NETWORK_DEGRADATION,
+    scenario_family=scenario_family,
+    instance=instance,
+),
         scenario_family=scenario_family,
         device_id=device_id,
         fault=FaultLabel.NETWORK_DEGRADATION,

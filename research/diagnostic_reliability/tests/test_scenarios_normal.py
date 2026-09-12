@@ -170,7 +170,7 @@ def test_n2_cpu_is_elevated_but_below_saturation():
     assert max(cpu) < 80.0
 
 
-def test_n2_memory_is_elevated_but_below_pressure():
+def test_n2_memory_is_high_but_stable():
     scenario = _high_valid_workload()
 
     memory = [
@@ -178,8 +178,17 @@ def test_n2_memory_is_elevated_but_below_pressure():
         for point in scenario.telemetry
     ]
 
-    assert sum(memory) / len(memory) > 60.0
-    assert max(memory) <= 70.0
+    early = memory[:6]
+    late = memory[-6:]
+
+    assert sum(memory) / len(memory) > 75.0
+    assert max(memory) > 80.0
+    assert max(memory) < 90.0
+
+    early_mean = sum(early) / len(early)
+    late_mean = sum(late) / len(late)
+
+    assert late_mean - early_mean < 10.0
 
 
 def test_n2_has_higher_connection_load_than_n1():
@@ -256,6 +265,17 @@ def test_n3_contains_brief_high_cpu_observations():
     ]
 
     assert len(high_cpu) >= 2
+
+
+def test_n3_can_cross_severe_cpu_threshold_without_becoming_fault():
+    scenario = _benign_transient(seed=42)
+
+    assert max(
+        point.cpu_percent
+        for point in scenario.telemetry
+    ) > 90.0
+
+    assert scenario.fault == FaultLabel.NORMAL
 
 
 def test_n3_high_cpu_is_not_persistent():

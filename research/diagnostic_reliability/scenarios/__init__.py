@@ -112,7 +112,7 @@ def generate_scenario(
             end_time=end_time,
         )
 
-    if fault == FaultLabel.APPLICATION_ERROR:
+    if fault == FaultLabel.APPLICATION_FAILURE:
         family = scenario_family or AF1_FAMILY
 
         return generate_application_failure_scenario(

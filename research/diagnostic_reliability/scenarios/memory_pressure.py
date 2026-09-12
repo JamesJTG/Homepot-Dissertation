@@ -14,6 +14,10 @@ MP-3
 Historical HOMEPOT telemetry did not contain a true memory-pressure regime.
 These scenarios are therefore controlled causal extensions that preserve the
 existing telemetry structure while introducing known memory-related faults.
+
+The families deliberately represent different temporal manifestations of
+memory pressure. Absolute memory utilisation is therefore informative, but a
+single fixed threshold is not intended to define every family.
 """
 
 from __future__ import annotations
@@ -21,7 +25,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 import random
 
-from .common import Scenario, TelemetryPoint, clamp
+from .common import Scenario, TelemetryPoint, build_scenario_id, clamp
 from ..taxonomy import FaultLabel
 
 
@@ -47,7 +51,8 @@ def _generate_gradual_memory_accumulation(
     """Generate MP-1: gradual memory accumulation.
 
     Memory usage rises progressively from a normal operating range into a
-    severe pressure regime.
+    sustained elevated range. The diagnostic pattern is the persistent upward
+    trajectory rather than crossing one severe absolute threshold.
 
     CPU, network latency and error rate rise only modestly so that memory is
     the dominant diagnostic signal.
@@ -58,7 +63,7 @@ def _generate_gradual_memory_accumulation(
     for idx in range(n_points):
         progress = idx / max(1, n_points - 1)
 
-        memory_target = 58.0 + (36.0 * progress)
+        memory_target = 58.0 + (30.0 * progress)
 
         cpu_target = 49.0 + (13.0 * progress)
         latency_target = 60.0 + (65.0 * progress)
@@ -69,7 +74,7 @@ def _generate_gradual_memory_accumulation(
         memory = clamp(
             memory_target + rng.uniform(-1.8, 1.8),
             45.0,
-            97.0,
+            92.0,
         )
 
         cpu = clamp(
@@ -242,7 +247,10 @@ def _generate_memory_pressure_with_queue_growth(
 ) -> tuple[TelemetryPoint, ...]:
     """Generate MP-3: memory pressure with queue growth.
 
-    Memory pressure develops alongside substantial queue accumulation.
+    Increasing memory utilisation develops alongside substantial queue
+    accumulation. The diagnostic pattern therefore depends on the joint
+    behaviour of memory and queue depth rather than an extreme memory
+    threshold alone.
 
     The queue signal deliberately introduces overlap with other operational
     failure modes while memory remains the primary underlying fault.
@@ -270,7 +278,7 @@ def _generate_memory_pressure_with_queue_growth(
                 / max(1, n_points - pressure_index - 1)
             )
 
-            memory_target = 66.0 + (27.0 * progress)
+            memory_target = 66.0 + (18.0 * progress)
             queue_target = 10.0 + (20.0 * progress)
 
             cpu_target = 52.0 + (13.0 * progress)
@@ -281,7 +289,7 @@ def _generate_memory_pressure_with_queue_growth(
         memory = clamp(
             memory_target + rng.uniform(-1.8, 1.8),
             45.0,
-            97.0,
+            90.0,
         )
 
         queue_depth = int(
@@ -392,7 +400,11 @@ def generate_memory_pressure_scenario(
         )
 
     return Scenario(
-        scenario_id=f"{FaultLabel.MEMORY_PRESSURE.value}_{instance:03d}",
+        scenario_id=build_scenario_id(
+    fault=FaultLabel.MEMORY_PRESSURE,
+    scenario_family=scenario_family,
+    instance=instance,
+),
         scenario_family=scenario_family,
         device_id=device_id,
         fault=FaultLabel.MEMORY_PRESSURE,

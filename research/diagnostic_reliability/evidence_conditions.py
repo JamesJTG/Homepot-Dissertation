@@ -7,7 +7,7 @@ from datetime import timedelta
 
 from ai.gates.config import gate_b_kwargs
 
-from .scenarios import Scenario, TelemetryPoint
+from .scenarios import Scenario
 from .taxonomy import EvidenceCondition, EvidenceSufficiency
 
 
