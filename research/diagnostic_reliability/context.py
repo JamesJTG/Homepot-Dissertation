@@ -42,13 +42,16 @@ def build_model_context(
     scenario-family name, seed, expected diagnosis, and injection
     configuration must not be exposed to the model.
 
-    Validation information is also restricted to an explicit whitelist of
-    upstream readiness fields so that arbitrary caller-provided metadata
-    cannot accidentally leak into the prompt.
+    Validation information is restricted to an explicit whitelist of
+    upstream readiness fields so arbitrary caller-provided metadata cannot
+    accidentally leak into the prompt.
+
+    The CURRENT SYSTEM STATUS block is deliberately stable because HOMEPOT
+    Gate C requires this production context contract before LLM ingestion.
     """
 
     lines = [
-        "[DEVICE]",
+        "[CURRENT SYSTEM STATUS]",
         f"Focus device: {scenario.device_id}",
         "",
         "[OPERATIONAL TELEMETRY]",
