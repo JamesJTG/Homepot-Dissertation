@@ -43,9 +43,10 @@ htmlcov/
 node_modules/
 
 # ------------------
-# Generated research analysis outputs
+# Generated research outputs
 # ------------------
 research/diagnostic_reliability/analysis/outputs/
+research/diagnostic_reliability/outputs/
 
 # ------------------
 # IDE-specific files

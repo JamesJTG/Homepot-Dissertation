@@ -61,13 +61,19 @@ class ExperimentalOllamaAdapter:
     - generation settings are explicit;
     - structured JSON output is requested through Ollama;
     - failures are raised rather than converted into conversational text;
+    - an optional research-only model override may be supplied;
     - the interface remains compatible with ``run_repeated_generations``.
+
+    When ``model`` is not supplied, the adapter uses the model configured in
+    HOMEPOT's ``ai/config.yaml``. Supplying ``model`` affects only this adapter
+    instance and does not modify the HOMEPOT configuration.
     """
 
     def __init__(
         self,
         *,
         temperature: float,
+        model: str | None = None,
         config_path: str | Path = DEFAULT_CONFIG_PATH,
     ) -> None:
         if temperature < 0.0:
@@ -76,12 +82,29 @@ class ExperimentalOllamaAdapter:
         config_path = Path(config_path)
         llm_config = _load_llm_config(config_path)
 
-        self.model = str(llm_config["model"])
+        configured_model = str(llm_config["model"])
+
+        self.model = (
+            str(model)
+            if model is not None
+            else configured_model
+        )
+
+        if not self.model.strip():
+            raise ValueError("model must not be empty")
+
         self.base_url = str(llm_config["base_url"])
-        self.context_window = int(llm_config.get("context_window", 4096))
+        self.context_window = int(
+            llm_config.get(
+                "context_window",
+                4096,
+            )
+        )
         self.temperature = float(temperature)
 
-        self.client = ollama.Client(host=self.base_url)
+        self.client = ollama.Client(
+            host=self.base_url
+        )
 
     def check_health(self) -> bool:
         """Return True when the configured Ollama service is reachable."""
@@ -102,6 +125,7 @@ class ExperimentalOllamaAdapter:
         The method signature intentionally matches the injectable callable
         expected by ``run_repeated_generations``.
         """
+
         messages = [
             {
                 "role": "system",
@@ -109,7 +133,10 @@ class ExperimentalOllamaAdapter:
             },
             {
                 "role": "user",
-                "content": f"Context:\n{context}\n\nQuestion: {prompt}",
+                "content": (
+                    f"Context:\n{context}\n\n"
+                    f"Question: {prompt}"
+                ),
             },
         ]
 
@@ -128,9 +155,13 @@ class ExperimentalOllamaAdapter:
                 f"Ollama generation failed for model {self.model!r}"
             ) from exc
 
-        content = str(response["message"]["content"]).strip()
+        content = str(
+            response["message"]["content"]
+        ).strip()
 
         if not content:
-            raise RuntimeError("Ollama returned an empty diagnostic response")
+            raise RuntimeError(
+                "Ollama returned an empty diagnostic response"
+            )
 
         return content
