@@ -33,12 +33,13 @@ import argparse
 import asyncio
 from dataclasses import asdict
 from datetime import datetime, timezone
-import json
 from pathlib import Path
 import platform
 import subprocess
 import time
 from typing import Any, Mapping
+
+from sqlalchemy import text
 
 from homepot.database import get_database_service
 
@@ -87,7 +88,9 @@ from .validation_integration import (
 )
 
 
-RUNNER_VERSION = "A8.5-main-v1"
+RUNNER_VERSION = "A8.5-main-v2"
+
+EXPECTED_EXPERIMENT_DATABASE = "homepot_dissertation_db"
 
 DEFAULT_MANIFEST_PATH = Path(
     "research/diagnostic_reliability/"
@@ -115,6 +118,45 @@ def utc_now_iso() -> str:
     """Return the current UTC timestamp as ISO 8601 text."""
 
     return utc_now().isoformat()
+
+
+def validate_experiment_database_name(
+    database_name: str,
+) -> None:
+    """Reject any database other than the dedicated experiment database."""
+
+    if database_name != EXPECTED_EXPERIMENT_DATABASE:
+        raise RuntimeError(
+            "Refusing to execute the diagnostic-reliability experiment "
+            f"against database {database_name!r}. "
+            "Expected dedicated experimental database "
+            f"{EXPECTED_EXPERIMENT_DATABASE!r}."
+        )
+
+
+async def verify_experiment_database(
+    db,
+) -> str:
+    """Return the connected database name after enforcing the safety guard."""
+
+    async with db.get_session() as session:
+        database_name = (
+            await session.execute(
+                text(
+                    "SELECT current_database()"
+                )
+            )
+        ).scalar_one()
+
+    database_name = str(
+        database_name
+    )
+
+    validate_experiment_database_name(
+        database_name
+    )
+
+    return database_name
 
 
 def case_id_for(
@@ -337,6 +379,7 @@ def build_run_metadata(
     *,
     selected_entries: list[ManifestEntry],
     git: Mapping[str, Any],
+    database_name: str,
 ) -> dict[str, Any]:
     """Return immutable provenance for one experiment run."""
 
@@ -358,6 +401,12 @@ def build_run_metadata(
         "git": dict(
             git
         ),
+        "database": {
+            "name": database_name,
+            "expected_name": (
+                EXPECTED_EXPERIMENT_DATABASE
+            ),
+        },
         "python_version": (
             platform.python_version()
         ),
@@ -1139,6 +1188,14 @@ async def run_experiment(
             "before collecting experimental observations."
         )
 
+    db = await get_database_service()
+
+    database_name = (
+        await verify_experiment_database(
+            db
+        )
+    )
+
     paths = ensure_run_directory(
         run_dir
     )
@@ -1148,6 +1205,9 @@ async def run_experiment(
             selected_entries
         ),
         git=git,
+        database_name=(
+            database_name
+        ),
     )
 
     write_immutable_json(
@@ -1193,6 +1253,9 @@ async def run_experiment(
         f"Run directory: {paths.run_dir}"
     )
     print(
+        f"Database: {database_name}"
+    )
+    print(
         f"Model: {MAIN_EXPERIMENT.model}"
     )
     print(
@@ -1218,8 +1281,6 @@ async def run_experiment(
     print(
         f"Prepare only: {prepare_only}"
     )
-
-    db = await get_database_service()
 
     async with db.get_session() as session:
         device = (

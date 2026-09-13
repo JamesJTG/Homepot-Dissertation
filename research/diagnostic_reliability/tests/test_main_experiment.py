@@ -5,10 +5,12 @@ from __future__ import annotations
 import pytest
 
 from research.diagnostic_reliability.main_experiment import (
+    EXPECTED_EXPERIMENT_DATABASE,
     build_run_metadata,
     case_id_for,
     generation_record_from_response,
     selected_manifest_entries,
+    validate_experiment_database_name,
     validate_expected_envelope,
     verify_existing_case_groups,
 )
@@ -58,6 +60,29 @@ def _gate_b_failure() -> dict:
             "B": {},
         },
     }
+
+
+def test_expected_experiment_database_is_dedicated_database() -> None:
+    assert (
+        EXPECTED_EXPERIMENT_DATABASE
+        == "homepot_dissertation_db"
+    )
+
+
+def test_database_guard_accepts_dedicated_database() -> None:
+    validate_experiment_database_name(
+        "homepot_dissertation_db"
+    )
+
+
+def test_database_guard_rejects_historical_database() -> None:
+    with pytest.raises(
+        RuntimeError,
+        match="Refusing to execute",
+    ):
+        validate_experiment_database_name(
+            "homepot_db"
+        )
 
 
 def test_case_id_contains_evidence_condition() -> None:
@@ -380,6 +405,9 @@ def test_run_metadata_records_selected_experiment_size() -> None:
                 "commit": "abc123",
                 "dirty": False,
             },
+            database_name=(
+                "homepot_dissertation_db"
+            ),
         )
     )
 
@@ -409,4 +437,22 @@ def test_run_metadata_records_selected_experiment_size() -> None:
             "ground_truth_model_visible"
         ]
         is False
+    )
+
+    assert (
+        metadata[
+            "database"
+        ][
+            "name"
+        ]
+        == "homepot_dissertation_db"
+    )
+
+    assert (
+        metadata[
+            "database"
+        ][
+            "expected_name"
+        ]
+        == "homepot_dissertation_db"
     )
