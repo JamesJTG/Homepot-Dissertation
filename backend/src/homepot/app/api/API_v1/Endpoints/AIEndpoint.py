@@ -45,6 +45,13 @@ from ai.gates import (  # noqa: E402
 from ai.gates import EnvelopeResult  # noqa: E402
 from ai.job_scheduler import PredictiveJobScheduler  # noqa: E402
 from ai.llm import LLMService  # noqa: E402
+
+from ai.post_inference_diagnostic_reliability import (  # noqa: E402
+    TELEMETRY_POINT_LIMIT,
+    PostInferenceDiagnosticReliabilityService,
+    build_diagnostic_context,
+)
+
 from ai.system_knowledge import SystemKnowledge  # noqa: E402
 
 from homepot.app.models.AnalyticsModel import (  # noqa: E402
@@ -871,6 +878,201 @@ async def query_ai(
         logger.error(f"AI query failed: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
+@router.post(
+    "/diagnostic-reliability/{device_id}",
+    tags=["AI Diagnostics"],
+)
+async def assess_device_diagnostic_reliability(
+    device_id: str,
+    current_user: UserDict = Depends(require_user()),
+    db: SASession = Depends(get_db),
+) -> Dict[str, Any]:
+    """Generate a reliability-assessed operational diagnosis for a device.
+
+    This feature applies HOMEPOT's production Validation Envelope before
+    structured repeated diagnostic generation. The resulting upstream
+    evidence-readiness state and downstream LLM uncertainty signals are then
+    evaluated by the frozen post-inference diagnostic reliability layer.
+    """
+    try:
+        # Resolve and authorise the target device using the same application
+        # boundary as the existing device-level AI features.
+        db_service = await get_database_service()
+
+        async with db_service.get_session() as session:
+            device_result = await session.execute(
+                select(Device).where(
+                    Device.device_id == device_id
+                )
+            )
+            device = device_result.scalar_one_or_none()
+
+            if not device or not device.is_active:
+                raise HTTPException(
+                    status_code=404,
+                    detail=(
+                        f"Device '{device_id}' not found "
+                        "or not active"
+                    ),
+                )
+
+            db_user = cast(
+                "User",
+                db.query(User)
+                .filter(
+                    User.email == current_user["email"]
+                )
+                .first(),
+            )
+
+            verify_device_belongs_to_user(
+                db_user,
+                device,
+                db,
+                minimum_role="viewer",
+            )
+
+            # Retrieve the most recent telemetry observations. They are
+            # selected newest-first for an efficient bounded query, then
+            # reordered chronologically by build_diagnostic_context().
+            telemetry_result = await session.execute(
+                select(DeviceMetrics)
+                .where(
+                    DeviceMetrics.device_id == device.id
+                )
+                .order_by(
+                    DeviceMetrics.timestamp.desc()
+                )
+                .limit(
+                    TELEMETRY_POINT_LIMIT
+                )
+            )
+
+            telemetry = list(
+                telemetry_result.scalars().all()
+            )
+
+            if not telemetry:
+                raise HTTPException(
+                    status_code=422,
+                    detail=(
+                        "No telemetry is available for "
+                        f"device '{device_id}'"
+                    ),
+                )
+
+            # First construct the evidence-only context. Gate C must evaluate
+            # the same diagnostic evidence representation that is about to
+            # become model-visible.
+            pre_validation_context = build_diagnostic_context(
+                device_id=device_id,
+                telemetry=telemetry,
+            )
+
+            gate_context = GateContext(
+                session=session,
+                device_id=device_id,
+                device_int_id=device.id,
+                assembled_context=pre_validation_context,
+                known_alert_ids=[],
+            )
+
+            envelope = build_envelope_from_config()
+            trust = await envelope.run(
+                gate_context
+            )
+
+            validation = {
+                "trust_mode": trust.trust_mode.id,
+                "trust_score": round(
+                    trust.trust_score,
+                    3,
+                ),
+                "actionable": trust.is_actionable,
+                "failed_gate_id": trust.failed_gate_id,
+            }
+
+            # Rebuild the final model-visible context with only the approved
+            # Validation Envelope fields.
+            diagnostic_context = build_diagnostic_context(
+                device_id=device_id,
+                telemetry=telemetry,
+                validation=validation,
+            )
+
+        # LLM inference no longer requires the database session.
+        llm, _, _ = get_ai_services()
+
+        reliability_service = (
+            PostInferenceDiagnosticReliabilityService(
+                llm
+            )
+        )
+
+        result = reliability_service.assess(
+            context=diagnostic_context,
+            envelope=trust,
+        )
+
+        return {
+            "device_id": device_id,
+            "diagnosis": result.modal_diagnosis.value,
+            "decision_state": result.decision_state.value,
+            "predicted_reliability": (
+                result.predicted_reliability
+            ),
+            "uncertainty": {
+                "mean_self_confidence": (
+                    result.mean_self_confidence
+                ),
+                "diagnostic_entropy": (
+                    result.diagnostic_entropy
+                ),
+                "modal_fraction": (
+                    result.modal_fraction
+                ),
+                "generation_count": (
+                    result.generation_count
+                ),
+            },
+            "validation": {
+                "evidence_ready": (
+                    result.evidence_ready
+                ),
+                "trust_mode": (
+                    trust.trust_mode.id
+                ),
+                "trust_score": (
+                    trust.trust_score
+                ),
+                "failed_gate_id": (
+                    trust.failed_gate_id
+                ),
+            },
+            "generated_at": (
+                datetime.utcnow().isoformat()
+            ),
+        }
+
+    except HTTPException:
+        raise
+
+    except Exception as e:
+        logger.error(
+            "Diagnostic reliability assessment failed "
+            "for device %s: %s",
+            device_id,
+            e,
+            exc_info=True,
+        )
+
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                "Failed to generate diagnostic "
+                "reliability assessment."
+            ),
+        )
 
 @router.get("/insights/push-notifications", tags=["AI Insights"])
 async def get_push_insights(

@@ -66,3 +66,5 @@ research/diagnostic_reliability/outputs/
 *.temp
 *.swp
 *~
+# AI runtime data
+ai/data/
