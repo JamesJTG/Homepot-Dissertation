@@ -35,6 +35,22 @@ The experimental extension provides:
 
 The experimental harness is **separate from the production `/ai/query` path**. It is a research prototype and should not be interpreted as a deployed production diagnostic safeguard.
 
+### System architecture
+
+HOMEPOT validates operational evidence before LLM inference. The dissertation's Post-Inference Diagnostic Reliability Layer (PIDRL) extends this workflow by estimating diagnostic reliability after inference and determining how an already-generated diagnosis should be handled.
+
+![HOMEPOT validation-first architecture and PIDRL extension](docs/images/dissertation/homepot-pidrl-architecture.png)
+
+*Figure: HOMEPOT's existing validation-first architecture and the PIDRL research extension.*
+
+### Diagnostic disposition policy
+
+PIDRL applies a four-state policy: ABSTAIN, WITHHOLD, QUALIFY or ISSUE. Its development-derived reliability threshold of 0.64 is specific to the research prototype and is not a validated production safety threshold.
+
+![PIDRL four-state diagnostic disposition policy](docs/images/dissertation/pidrl-four-state-decision-logic.png)
+
+*Figure: Four-state decision logic for handling an already-generated diagnosis.*
+
 ### Research documentation
 
 For the experimental architecture, methodology, results, limitations and available reproducibility artefacts, see:

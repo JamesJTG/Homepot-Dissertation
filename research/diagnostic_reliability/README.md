@@ -193,6 +193,20 @@ Model execution requires sufficient local computing resources. Results from a ne
 
 **Do not use the original frozen run directory for exploratory reproduction.** The experiment supports resuming durable runs, so separate directories prevent accidental alteration of the original evidence.
 
+### Experimental design and reliability estimation
+
+The experiment contains 150 controlled scenarios, each evaluated under four evidence conditions, producing 600 evidence cases. Seven repeated LLM generations per case yield 4,200 generation-level observations. Scenarios are the highest independent experimental units; evidence-condition variants and repeated generations are nested observations.
+
+![Experimental hierarchy and units of analysis](../../docs/images/dissertation/experimental-hierarchy.png)
+
+*Figure: Experimental hierarchy, dataset sizes and units of analysis.*
+
+For each evidence case, the repeated generations are aggregated into a modal diagnosis and two downstream uncertainty signals. The reliability estimator combines these signals with upstream evidence readiness. Ground truth is reserved for offline evaluation and is not available to the runtime estimator. Cases with an UNKNOWN modal diagnosis are excluded from the diagnostic-correctness outcome and assessed separately through decision appropriateness.
+
+![Case-level reliability estimation and evaluation paths](../../docs/images/dissertation/case-level-reliability-estimation.png)
+
+*Figure: Construction of case-level reliability measures and separation of prediction from ground-truth evaluation.*
+
 ### 7. Inspect the frozen dissertation results
 
 The published results are organised under:
