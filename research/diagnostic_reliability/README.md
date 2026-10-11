@@ -105,7 +105,6 @@ This verifies dependency installation, research module imports and automated tes
 Any test failures in a new environment should be investigated rather than treated as successful reproduction.
 
 ### 4. Run the Gate B validation checkpoint
-### 4. Run the Gate B validation checkpoint
 
 Gate B verifies that the evidence validation mechanism distinguishes complete, fresh telemetry from deliberately degraded evidence.
 
@@ -365,37 +364,3 @@ New experimental runs should use separate output directories to protect the froz
 The HOMEPOT application and dissertation research workflow are distinct. Running the complete application is not equivalent to reproducing the dissertation experiment.
 
 These verification results apply to the tested macOS environment and should not be interpreted as independent verification across other operating systems or hardware configurations.
-
-#### Requirements and limitations
-
-The following activities remain unverified:
-
-- Running a new diagnostic-reliability experiment with Ollama and the `gemma3:12b` model in the separate reproduction checkout.
-- Repeating the original full-scale experiment, including all LLM generations and downstream statistical evaluation.
-- Executing the reproduction workflow on Windows or Linux.
-- Repeating the fresh database and Python installation procedures on a completely independent machine.
-
-The fresh PostgreSQL integration test used a separate temporary database rather than the exact database name required by the main experimental runner. Therefore, it verifies schema initialisation and experimental evidence preparation, but not a complete fresh installation followed by full experimental execution.
-
-The original experiment's outputs are provided as frozen research evidence. A new experimental run may produce different diagnostic responses and results because LLM generation is not necessarily deterministic.
-
-The reporting scripts require the frozen intermediate files under:
-
-```text
-research/diagnostic_reliability/analysis/outputs/
-```
-
-The necessary A8 research evidence files were included in commit `b8d4781`, allowing the reporting scripts to regenerate the published dissertation tables and figures in the tested clean checkout.
-
-The experiment enforces two safeguards:
-
-- **Dedicated database requirement:** The main experiment refuses to run unless the connected PostgreSQL database is named `homepot_dissertation_db`.
-- **Git working-tree integrity:** The experiment requires a clean Git checkout to protect experimental provenance. Uncommitted modifications or untracked files may prevent execution.
-
-The reporting scripts may update tracked PDF files because PDF creation and modification timestamps can change. If reporting regeneration is performed before a new experimental run, the checkout's Git status should be checked and any unintended generated-file modifications resolved before starting the experiment.
-
-New experimental runs should use separate output directories to avoid altering the original frozen research evidence.
-
-The HOMEPOT application and the dissertation's experimental research workflow remain distinct. Installing or running the full HOMEPOT application is not equivalent to reproducing the dissertation experiment.
-
-The verification results reported here are specific to the tested macOS environment and should not be interpreted as independent verification across all operating systems or hardware configurations.

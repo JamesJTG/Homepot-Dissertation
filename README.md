@@ -4,9 +4,8 @@
 [![Python Version](https://img.shields.io/badge/python-3.11%2B-brightgreen.svg)](https://python.org/)
 [![Documentation](https://readthedocs.org/projects/homepot-client/badge/?version=latest)](https://homepot-client.readthedocs.io/en/latest/)
 [![Code Style](https://img.shields.io/badge/code%20style-black%20%7C%20flake8-000000.svg)](https://github.com/psf/black)
-[![Security](https://img.shields.io/badge/security-audit%20passing-green.svg)](https://github.com/brunel-opensim/homepot-client/actions/workflows/security-audit.yml)
 
-> **Private Repository**: This repository is restricted to HOMEPOT consortium members only.
+> **Repository scope:** This repository contains the HOMEPOT codebase and an MSc dissertation research extension. Its publication does not override any applicable upstream licensing, attribution or access restrictions.
 
 HOMEPOT stands for **Homogenous Cyber Management of End-Points and Operational Technology**.
 It is a collaborative, multi-partner project that aims to unify the way organisations manage, secure, and communicate with diverse end-points and operational technology devices across different platforms and environments.

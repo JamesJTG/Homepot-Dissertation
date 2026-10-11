@@ -1,8 +1,8 @@
 # AI/LLM Services
 
 > **Status:** Foundation Implemented (December 2025)
-> **Roadmap:** [AI Integration Roadmap](/docs/ai-roadmap.md)
-> **Documentation:** [Context Builder](/docs/ai-context-builder.md)
+> **Roadmap:** [AI Integration Roadmap](../docs/ai-roadmap.md)
+> **Documentation:** [Context Builder](../docs/ai-context-builder.md)
 
 This directory contains the AI and Machine Learning services for the HOMEPOT Client. The system implements a **Hybrid Analysis Architecture** that combines deterministic rule-based detection with contextual LLM analysis.
 
@@ -37,7 +37,7 @@ Available context sources include:
 *   **Lifecycle Epochs:** Claim-to-retirement periods per device.
 *   **User Profiles:** User metadata including role and active status.
 
-For full details, see the [Context Builder Documentation](/docs/ai-context-builder.md).
+For full details, see the [Context Builder Documentation](../docs/ai-context-builder.md).
 
 ## Core Components
 
