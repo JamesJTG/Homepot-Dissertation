@@ -23,6 +23,24 @@ The general HOMEPOT AI configuration may specify a different model. The disserta
 
 The frozen dissertation tables and figures can be inspected without running PostgreSQL or Ollama.
 
+### Dedicated experimental database configuration
+
+The diagnostic-reliability experiment requires a separate PostgreSQL database named `homepot_dissertation_db`. It deliberately refuses to run against the normal HOMEPOT database, `homepot_db`.
+
+Before executing Gate B or the main experiment, ensure PostgreSQL is running, the dedicated database exists, the required schema has been initialised, and the configured database user has appropriate permissions.
+
+HOMEPOT supports a database URL override through the `DATABASE__URL` environment variable. For example:
+
+```bash
+export DATABASE__URL="postgresql://homepot_user:YOUR_PASSWORD@localhost:5432/homepot_dissertation_db"
+```
+
+Replace `YOUR_PASSWORD` with the password configured for your local PostgreSQL user. Do not commit credentials or a populated `.env` file.
+
+The experiment must be executed from a clean Git checkout because it enforces a repository-integrity safeguard. Uncommitted changes and untracked files can prevent execution. Use a fresh Git clone for reproduction and separate run directories for new experiments.
+
+A successful database connection does not, by itself, establish that the required experimental schema or evidence-validation services are ready.
+
 ### 2. Install the Python environment
 
 From the cloned repository root:
@@ -54,36 +72,82 @@ This verifies imports only. It does not establish database connectivity or confi
 
 ### 3. Run the automated research tests
 
+From the repository root, with the Python virtual environment activated, execute:
+
 ```bash
 PYTHONPATH=.:backend/src python -m pytest research/diagnostic_reliability/tests -q
 ```
 
-The tests cover research components including evidence representation, scenario construction, experimental configuration, parsing, uncertainty measures, experiment storage and execution logic.
+The automated tests cover research components including evidence representation, scenario construction, experimental configuration, parsing, uncertainty measures, experiment storage and execution logic.
 
-**Verification:** pytest should finish with a passing test summary. Any failures must be investigated rather than treated as successful reproduction.
+**Expected result:** The test suite should complete without failures.
 
-Some tests may require additional environment configuration. The complete suite has not yet been verified in a clean macOS installation.
+**Verified result:** All 460 diagnostic-reliability research tests passed in a separate examiner-style Git checkout of commit `b8d4781` on macOS using a newly created Python 3.11.15 virtual environment.
+
+The documented dependencies installed successfully, and the required research modules imported without errors.
+
+```text
+460 passed in 0.72s
+```
+
+This verifies fresh-environment dependency installation and automated research testing on macOS. It does not establish Windows compatibility or reproduce the complete Ollama-dependent experiment.
+
+**Verified fresh-environment result:** The documented Python dependencies were successfully installed into a newly created Python 3.11.15 virtual environment in a separate examiner-style repository checkout on macOS.
+
+All required research imports succeeded, and the complete automated research test suite passed:
+
+```text
+460 passed in 0.72s
+```
+
+This verifies dependency installation, research module imports and automated test execution in a fresh Python environment. It does not establish compatibility with every operating system or reproduce the complete Ollama-dependent experiment.
+
+Any test failures in a new environment should be investigated rather than treated as successful reproduction.
 
 ### 4. Run the Gate B validation checkpoint
+### 4. Run the Gate B validation checkpoint
 
-For a configured HOMEPOT PostgreSQL environment:
+Gate B verifies that the evidence validation mechanism distinguishes complete, fresh telemetry from deliberately degraded evidence.
+
+Configure the dedicated dissertation PostgreSQL database before running the checkpoint:
 
 ```bash
+export DATABASE__URL="postgresql://homepot_user:YOUR_PASSWORD@localhost:5432/homepot_dissertation_db"
+
 PYTHONPATH=.:backend/src python -m research.diagnostic_reliability.gate_b_checkpoint
 ```
 
-Expected success indicator:
+Replace `YOUR_PASSWORD` with the password configured for your PostgreSQL user.
+
+Expected final success indicator:
 
 ```text
-M6.2 CHECKPOINT: PASS
+GATE B EXPERIMENTAL-VALIDITY CHECKPOINT: PASS
 ```
 
-This checkpoint exercises the research integration with HOMEPOT's evidence validation mechanism. It is not a substitute for running the complete experiment.
+The checkpoint verifies four evidence conditions:
+
+| Evidence condition | Expected validation result |
+|---|---|
+| `COMPLETE_FRESH` | Pass |
+| `STALE` | Fail freshness |
+| `INCOMPLETE` | Fail completeness |
+| `DISCONTINUOUS` | Fail continuity |
+
+**Verified result:** The checkpoint passed in both the separate reproduction checkout and the original development repository. All eight experimental-validity checks returned `true`.
+
+Without the `DATABASE__URL` override, HOMEPOT may connect to its default `homepot_db` database, which may have an incompatible schema. Use the dedicated dissertation database rather than modifying an existing application database.
+
+The checkpoint does not reproduce the complete LLM-dependent experiment.
+
+**Database warning:** Without the `DATABASE__URL` override, HOMEPOT may connect to its default `homepot_db` database. An existing application database may have an incompatible schema. Do not reset or modify an existing database to resolve this issue. Use a separately configured research database instead.
+
+This checkpoint exercises the research integration with HOMEPOT's evidence validation mechanism. It does not reproduce the complete Ollama-dependent experiment.
 
 ### 5. Prepare a small experimental run without LLM generation
 
 The main experiment module supports a preparation-only mode that persists validation-controlled evidence cases without making LLM calls.
-
+Ensure DATABASE__URL is configured as described in the dedicated experimental database section above.
 Use a separate directory to avoid changing the frozen dissertation run:
 
 ```bash
@@ -112,7 +176,7 @@ Verify that Ollama can access the model:
 ```bash
 ollama list
 ```
-
+Ensure DATABASE__URL is configured as described in the dedicated experimental database section above.
 With PostgreSQL and the research environment configured, run a small experiment in a separate directory:
 
 ```bash
@@ -190,7 +254,7 @@ Verification should be performed at the appropriate level:
 |---|---|
 | Environment installation | Required Python imports succeed |
 | Automated testing | pytest reports passing tests |
-| Gate B checkpoint | `M6.2 CHECKPOINT: PASS` |
+| Gate B checkpoint | `GATE B EXPERIMENTAL-VALIDITY CHECKPOINT: PASS` |
 | Evidence preparation | Expected artefacts appear in the separate dry-run directory |
 | LLM experiment | Experiment completes and produces durable run artefacts |
 | Frozen result inspection | Tables, figures and manifest are present |
@@ -202,12 +266,106 @@ For exact reproduction of the reported analysis, the original frozen intermediat
 
 ### 10. Reproducibility boundaries
 
-The dissertation's original experiment and evaluation were completed and frozen before preparation of the publication documentation.
+The dissertation's original experiment and evaluation were completed and frozen before preparation of the repository's publication documentation.
 
-The instructions above identify the supported research entry points and their intended use. They have not yet been independently verified from a clean macOS checkout.
+The repository supports several distinct levels of research verification and reproduction:
 
-The original results should not be described as independently reproduced merely because the scripts are available.
+1. **Automated testing:** Running the research test suite to verify the behaviour of individual components and research workflows.
+2. **Experimental evidence preparation:** Preparing and persisting diagnostic evidence cases using the dedicated experimental database, without invoking LLM generation.
+3. **Experimental execution:** Running a new diagnostic-reliability experiment using the configured LLM and experimental infrastructure.
+4. **Frozen-results inspection:** Examining the published dissertation tables, figures, manifests and intermediate analysis evidence.
+5. **Reporting regeneration:** Recreating dissertation tables and figures from the frozen analysis inputs supplied in the repository.
 
-In particular, successful regeneration of dissertation tables and figures depends on the availability of the frozen `analysis/outputs/` inputs. If those files are excluded from the published repository, readers can inspect the supplied final outputs but cannot regenerate them using the reporting scripts alone.
+These activities are not equivalent. In particular, successful reporting regeneration does not mean that the original LLM generations, reliability model fitting, model selection or statistical evaluation have been repeated.
 
-The HOMEPOT application and the dissertation's experimental research workflow are distinct. Installing the full application is not equivalent to reproducing the dissertation experiment.
+#### Verified reproducibility results
+
+A separate examiner-style Git checkout of commit `b8d4781` was tested on macOS using Python 3.11.15. The verification included a newly created virtual environment.
+
+The following checks completed successfully:
+
+- **Fresh Python environment:** The documented dependencies installed successfully in a new Python 3.11.15 virtual environment, and the required research modules imported without errors.
+- **Automated tests:** All 460 diagnostic-reliability research tests passed in the fresh environment (`460 passed in 0.72s`).
+- **Fresh PostgreSQL database:** A separate, initially empty PostgreSQL database was created and initialised using HOMEPOT's database service, producing 25 tables.
+- **Fresh-database evidence preparation:** Experimental device provisioning and evidence preparation successfully produced four evidence cases for one scenario in the newly initialised database.
+- **Dedicated research database:** The existing `homepot_dissertation_db` database was accessed successfully using the `DATABASE__URL` override.
+- **Preparation-only experiment:** Eight evidence cases across two scenarios were successfully prepared and persisted without LLM generation.
+- **Gate B checkpoint:** The checkpoint passed in the separate reproduction checkout. All eight experimental-validity checks returned `true`, including the expected validation failures for stale, incomplete and discontinuous evidence.
+- **Reporting scripts:** Both dissertation reporting scripts executed successfully using the committed frozen analysis inputs.
+- **Reporting completeness:** All 53 expected dissertation reporting artefacts were regenerated.
+- **CSV outputs:** All 29 dissertation tables and five consolidated tables were byte-identical to their committed versions.
+- **PNG figures:** All nine regenerated PNG figures were byte-identical to their committed versions.
+- **PDF figures:** All nine regenerated PDF figures matched their committed versions after excluding creation and modification date metadata.
+- **Generation manifest:** The regenerated results manifest was byte-identical to its committed version.
+
+These results verify the documented Python environment, automated tests, fresh-database evidence preparation, Gate B validation behaviour and frozen-results reporting process in the tested macOS environment.
+
+They do not establish reproduction of the complete original LLM-dependent experiment or downstream statistical evaluation from scratch.
+
+#### Requirements and limitations
+
+The following activities remain unverified:
+
+- Running a new diagnostic-reliability experiment with Ollama and the `gemma3:12b` model in the separate reproduction checkout.
+- Repeating the original full-scale experiment, including LLM generations and downstream statistical evaluation.
+- Executing the reproduction workflow on Windows or Linux.
+- Repeating the complete setup on a physically independent machine.
+
+The fresh PostgreSQL integration test used a separate temporary database rather than the exact database name enforced by the main experimental runner. It therefore verifies database schema initialisation and evidence preparation, but not full experimental execution from a completely fresh database.
+
+The original experiment's outputs are supplied as frozen research evidence. New LLM generations may produce different results because generation is not necessarily deterministic.
+
+The reporting scripts require the frozen intermediate files under:
+
+```text
+research/diagnostic_reliability/analysis/outputs/
+```
+
+The necessary A8 research evidence files were included in commit `b8d4781`.
+
+The experiment enforces two safeguards:
+
+- **Dedicated database requirement:** The main experiment refuses to run unless the connected database is named `homepot_dissertation_db`.
+- **Git working-tree integrity:** The experiment requires a clean Git checkout. Uncommitted modifications or untracked files may prevent execution.
+
+Reporting regeneration may modify tracked PDF files because PDF creation and modification timestamps can change. Run experimental checks before regenerating reports, or use a separate clean checkout.
+
+New experimental runs should use separate output directories to protect the frozen dissertation evidence.
+
+The HOMEPOT application and dissertation research workflow are distinct. Running the complete application is not equivalent to reproducing the dissertation experiment.
+
+These verification results apply to the tested macOS environment and should not be interpreted as independent verification across other operating systems or hardware configurations.
+
+#### Requirements and limitations
+
+The following activities remain unverified:
+
+- Running a new diagnostic-reliability experiment with Ollama and the `gemma3:12b` model in the separate reproduction checkout.
+- Repeating the original full-scale experiment, including all LLM generations and downstream statistical evaluation.
+- Executing the reproduction workflow on Windows or Linux.
+- Repeating the fresh database and Python installation procedures on a completely independent machine.
+
+The fresh PostgreSQL integration test used a separate temporary database rather than the exact database name required by the main experimental runner. Therefore, it verifies schema initialisation and experimental evidence preparation, but not a complete fresh installation followed by full experimental execution.
+
+The original experiment's outputs are provided as frozen research evidence. A new experimental run may produce different diagnostic responses and results because LLM generation is not necessarily deterministic.
+
+The reporting scripts require the frozen intermediate files under:
+
+```text
+research/diagnostic_reliability/analysis/outputs/
+```
+
+The necessary A8 research evidence files were included in commit `b8d4781`, allowing the reporting scripts to regenerate the published dissertation tables and figures in the tested clean checkout.
+
+The experiment enforces two safeguards:
+
+- **Dedicated database requirement:** The main experiment refuses to run unless the connected PostgreSQL database is named `homepot_dissertation_db`.
+- **Git working-tree integrity:** The experiment requires a clean Git checkout to protect experimental provenance. Uncommitted modifications or untracked files may prevent execution.
+
+The reporting scripts may update tracked PDF files because PDF creation and modification timestamps can change. If reporting regeneration is performed before a new experimental run, the checkout's Git status should be checked and any unintended generated-file modifications resolved before starting the experiment.
+
+New experimental runs should use separate output directories to avoid altering the original frozen research evidence.
+
+The HOMEPOT application and the dissertation's experimental research workflow remain distinct. Installing or running the full HOMEPOT application is not equivalent to reproducing the dissertation experiment.
+
+The verification results reported here are specific to the tested macOS environment and should not be interpreted as independent verification across all operating systems or hardware configurations.
