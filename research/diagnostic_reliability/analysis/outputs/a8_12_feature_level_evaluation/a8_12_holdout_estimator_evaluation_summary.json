@@ -1,0 +1,65 @@
+{
+  "stage": "A8.12.2",
+  "status": "FINAL_HOLDOUT_ESTIMATOR_EVALUATION_COMPLETE",
+  "evaluation_type": "one-shot frozen holdout evaluation",
+  "holdout_now_opened": true,
+  "holdout_population": {
+    "eligible_cases": 54,
+    "represented_scenarios": 15,
+    "Y_D_0": 43,
+    "Y_D_1": 11,
+    "observed_correctness_rate": 0.2037037037037037
+  },
+  "models": {
+    "M_E": {
+      "n": 54,
+      "Y_D_0": 43,
+      "Y_D_1": 11,
+      "observed_correctness_rate": 0.2037037037037037,
+      "mean_predicted_reliability": 0.19122510134391799,
+      "brier_score": 0.04446914714726953,
+      "auroc": 0.9651162790697674,
+      "auprc": 0.7857142857142857,
+      "ece_5_quantile_bins": 0.026849187316031607
+    },
+    "M_EU": {
+      "n": 54,
+      "Y_D_0": 43,
+      "Y_D_1": 11,
+      "observed_correctness_rate": 0.2037037037037037,
+      "mean_predicted_reliability": 0.19441746832177273,
+      "brier_score": 0.05836953397158318,
+      "auroc": 0.952431289640592,
+      "auprc": 0.7228589592225956,
+      "ece_5_quantile_bins": 0.05667855637581991
+    }
+  },
+  "paired_point_estimate_differences": {
+    "comparison": "M_EU minus M_E",
+    "brier_score_difference": 0.013900386824313653,
+    "auroc_difference": -0.012684989429175397,
+    "auprc_difference": -0.06285532649169012,
+    "ece_difference": 0.0298293690597883
+  },
+  "primary_metric": "Brier score",
+  "supporting_metrics": [
+    "AUROC",
+    "AUPRC",
+    "ECE",
+    "5-bin reliability analysis"
+  ],
+  "frozen_before_holdout": {
+    "M_E_parameters": true,
+    "M_EU_parameters": true,
+    "issue_threshold_0_64": true,
+    "evaluation_protocol": true
+  },
+  "post_holdout_tuning_permitted": false,
+  "inputs": {
+    "research/diagnostic_reliability/analysis/outputs/a8_6_outcome_uncertainty_construction/a8_6_evidence_case_reliability_dataset.csv": "f165eb1c41f0c2a901af78219428134b213097e4602440414b79ec2a841f079f",
+    "research/diagnostic_reliability/analysis/outputs/a8_7_reliability_modelling/a8_7_scenario_development_holdout_assignment.csv": "4a2dae150dd1fdde652839a2a90de52330661ac8feddf4ae6a18c5a801ba96d2",
+    "research/diagnostic_reliability/analysis/outputs/a8_11_homepot_integration/a8_11_final_development_meu_parameters.json": "54ac0d6bec84ad6a217ca7b77bdbf265ed377c1d9788ea36f149bc12bbe035b0",
+    "research/diagnostic_reliability/analysis/outputs/a8_12_feature_level_evaluation/a8_12_final_development_me_parameters.json": "550d30a63ca5bcdb38ea443f4d949312f00ac08e6343a61206d40ea575585df0",
+    "research/diagnostic_reliability/analysis/outputs/a8_12_feature_level_evaluation/a8_12_pre_holdout_evaluation_protocol.json": "10106fc77175730c350dc27c8f74c997f31e3af6c3e632998aeac4446b97adce"
+  }
+}

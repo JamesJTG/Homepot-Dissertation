@@ -1,0 +1,5 @@
+evidence_condition,Eligible_cases,Correct,Incorrect
+COMPLETE_FRESH,75,56,19
+DISCONTINUOUS,72,0,72
+INCOMPLETE,68,0,68
+STALE,77,0,77

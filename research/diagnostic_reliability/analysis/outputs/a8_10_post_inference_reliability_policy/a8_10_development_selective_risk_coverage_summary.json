@@ -1,0 +1,52 @@
+{
+  "stage": "A8.10",
+  "substage": "A8.10.1",
+  "name": "Development Selective-Risk and Coverage Profile",
+  "status": "COMPLETED_AFTER_VALIDATION",
+  "selected_model": "M_EU",
+  "benchmark_model": "M_E",
+  "data": {
+    "type": "development out-of-fold reliability predictions",
+    "cases_per_model": 238,
+    "holdout_used": false
+  },
+  "threshold_grid": {
+    "minimum": 0.0,
+    "maximum": 1.0,
+    "step": 0.01
+  },
+  "policy_semantics": {
+    "issue": "Diagnosis may be presented normally when the final higher reliability criterion is satisfied.",
+    "qualify": "Diagnosis may be presented with explicit reliability qualification when it falls between the final lower and higher criteria.",
+    "withhold": "Generated fault diagnosis is not presented as sufficiently reliable for operational decision support when the lower criterion is not met."
+  },
+  "definitions": {
+    "coverage": "Proportion of eligible diagnoses with predicted reliability at or above a candidate threshold.",
+    "selective_risk": "Proportion of accepted diagnoses that are diagnostically incorrect."
+  },
+  "model_summaries": {
+    "M_E": {
+      "n_cases": 238,
+      "observed_correctness_rate": 0.18907563025210083,
+      "prediction_min": 0.003339631622538768,
+      "prediction_max": 0.7607448628068192,
+      "highest_nonempty_threshold": 0.76,
+      "highest_accuracy_observed": 0.7377049180327869,
+      "coverage_at_highest_accuracy": 0.25630252100840334,
+      "threshold_at_highest_accuracy": 0.01
+    },
+    "M_EU": {
+      "n_cases": 238,
+      "observed_correctness_rate": 0.18907563025210083,
+      "prediction_min": 0.000329576318547386,
+      "prediction_max": 0.8561308339230975,
+      "highest_nonempty_threshold": 0.85,
+      "highest_accuracy_observed": 0.8571428571428571,
+      "coverage_at_highest_accuracy": 0.17647058823529413,
+      "threshold_at_highest_accuracy": 0.74
+    }
+  },
+  "thresholds_selected": false,
+  "model_retrained": false,
+  "holdout_used": false
+}

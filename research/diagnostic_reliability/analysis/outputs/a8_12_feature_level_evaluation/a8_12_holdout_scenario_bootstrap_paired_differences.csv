@@ -1,0 +1,4 @@
+reference_model,comparison_model,metric,difference_definition,point_difference,bootstrap_mean_difference,ci_lower_95,ci_upper_95,favourable_proportion,favourable_definition,valid_replicates
+M_E,M_EU,brier_score,M_EU - M_E,0.013900386824313653,0.014067411674693574,-9.180980151498347e-06,0.03234408540598723,0.026,Proportion of bootstrap replicates where M_EU Brier < M_E Brier,2000
+M_E,M_EU,auroc,M_EU - M_E,-0.012684989429175397,-0.012606121225935973,-0.03409229490022181,0.0,0.0005,Proportion of bootstrap replicates where M_EU auroc > M_E auroc,2000
+M_E,M_EU,auprc,M_EU - M_E,-0.06285532649169012,-0.054023391539748104,-0.11385281385281387,0.0,0.0,Proportion of bootstrap replicates where M_EU auprc > M_E auprc,2000

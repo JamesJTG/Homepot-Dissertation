@@ -1,0 +1,62 @@
+{
+  "stage": "A8.10",
+  "substage": "A8.10.2",
+  "name": "Scenario-Level Policy Operating-Point Analysis",
+  "status": "COMPLETED_AFTER_VALIDATION",
+  "model": "M_EU",
+  "data": {
+    "type": "development OOF predictions",
+    "eligible_cases": 238,
+    "represented_scenarios": 68,
+    "holdout_used": false
+  },
+  "bootstrap": {
+    "unit": "scenario_id",
+    "replicates": 2000,
+    "valid_replicates": 2000,
+    "seed": 20260917,
+    "confidence_level": 0.95,
+    "scenario_multiplicity_preserved": true
+  },
+  "analysis": {
+    "threshold_grid": "0.00 to 1.00 by 0.01",
+    "metrics": [
+      "coverage",
+      "accepted_accuracy",
+      "selective_risk"
+    ],
+    "acceptance_set_change_thresholds": [
+      0.0,
+      0.01,
+      0.02,
+      0.31,
+      0.36,
+      0.46,
+      0.48,
+      0.49,
+      0.52,
+      0.59,
+      0.63,
+      0.64,
+      0.66,
+      0.73,
+      0.74,
+      0.77,
+      0.78,
+      0.79,
+      0.81,
+      0.82,
+      0.83,
+      0.86
+    ]
+  },
+  "interpretation_constraints": [
+    "This analysis characterises candidate operating regions.",
+    "No Issue, Qualify or Withhold threshold is selected here.",
+    "Observed maximum accuracy is not used mechanically as a threshold.",
+    "Uncertainty is estimated by resampling whole scenarios.",
+    "The final holdout remains untouched."
+  ],
+  "thresholds_selected": false,
+  "holdout_used": false
+}

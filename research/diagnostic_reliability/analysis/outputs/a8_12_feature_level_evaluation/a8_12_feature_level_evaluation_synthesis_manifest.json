@@ -1,0 +1,26 @@
+{
+  "stage": "A8.12",
+  "substage": "A8.12.5",
+  "status": "COMPLETE",
+  "purpose": "Durable synthesis of development, final holdout, uncertainty and feature-policy evidence before A8.13 Final Technical Freeze.",
+  "inputs": {
+    "research/diagnostic_reliability/analysis/outputs/a8_8_evaluation_and_calibration/a8_8_oof_model_performance_metrics.csv": "e7ce73687e8fbb12f4b539d8bba7132f41b941223dbc3bf5c0582493aef1da68",
+    "research/diagnostic_reliability/analysis/outputs/a8_8_evaluation_and_calibration/a8_8_scenario_bootstrap_paired_model_differences.csv": "3cc704f34e67034f8aceb9298aa14fcb231d3bab6ece0e450dd9236303c156f6",
+    "research/diagnostic_reliability/analysis/outputs/a8_9_reliability_estimator_selection/a8_9_reliability_estimator_selection.json": "c1ec341c311188da0a16870afee7aa014b2c02f8af2f8e92490d7c55795ccb4e",
+    "research/diagnostic_reliability/analysis/outputs/a8_10_post_inference_reliability_policy/a8_10_frozen_post_inference_reliability_policy.json": "5e871a2ffc18a8575ebdece620ba87e578c33610aaae15abed3e4ed989977bf3",
+    "research/diagnostic_reliability/analysis/outputs/a8_11_homepot_integration/a8_11_final_development_meu_parameters.json": "54ac0d6bec84ad6a217ca7b77bdbf265ed377c1d9788ea36f149bc12bbe035b0",
+    "research/diagnostic_reliability/analysis/outputs/a8_12_feature_level_evaluation/a8_12_pre_holdout_evaluation_protocol.json": "10106fc77175730c350dc27c8f74c997f31e3af6c3e632998aeac4446b97adce",
+    "research/diagnostic_reliability/analysis/outputs/a8_12_feature_level_evaluation/a8_12_holdout_estimator_evaluation_summary.json": "6f062e3600ffdeb2628c883ded97be8fa0fb91d1163ded2511a5503392feff51",
+    "research/diagnostic_reliability/analysis/outputs/a8_12_feature_level_evaluation/a8_12_holdout_scenario_bootstrap_manifest.json": "de1b2fd62cddc6b9b75097c5d6476738c362d91cb3fac908107c6af5a26ed2b4",
+    "research/diagnostic_reliability/analysis/outputs/a8_12_feature_level_evaluation/a8_12_holdout_scenario_bootstrap_paired_differences.csv": "2be208bedba693ef85335714655918025971a972098233db3090420e8a7214a7",
+    "research/diagnostic_reliability/analysis/outputs/a8_12_feature_level_evaluation/a8_12_holdout_feature_policy_summary.json": "eed6f2522d6b8b547624bcb150d24b48f3cae9bf7a4f586deae0de44ef4cb38e",
+    "research/diagnostic_reliability/analysis/outputs/a8_12_feature_level_evaluation/a8_12_holdout_feature_policy_manifest.json": "f7d76e575256d01481224b5538a871999b3cff2d04ef1f6d149c6a4e2f0fe2b7"
+  },
+  "outputs": {
+    "synthesis": "research/diagnostic_reliability/analysis/outputs/a8_12_feature_level_evaluation/a8_12_feature_level_evaluation_synthesis.json"
+  },
+  "new_model_fitting": false,
+  "new_threshold_selection": false,
+  "new_statistical_testing": false,
+  "post_holdout_tuning": false
+}

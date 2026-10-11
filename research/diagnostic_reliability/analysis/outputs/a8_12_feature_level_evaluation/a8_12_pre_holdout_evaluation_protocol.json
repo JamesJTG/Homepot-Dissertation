@@ -1,0 +1,100 @@
+{
+  "stage": "A8.12",
+  "substage": "A8.12.1",
+  "status": "FROZEN_BEFORE_HOLDOUT_EVALUATION",
+  "purpose": "Evaluate the frozen Post-Inference Diagnostic Reliability Layer on the previously untouched scenario-level holdout partition without further model or policy development.",
+  "research_question_comparison": "Compare upstream evidence-readiness alone (M_E) with the selected combined upstream and downstream reliability estimator (M_EU).",
+  "candidate_model": {
+    "model": "M_EU",
+    "parameters_source": "research/diagnostic_reliability/analysis/outputs/a8_11_homepot_integration/a8_11_final_development_meu_parameters.json",
+    "frozen_before_holdout": true
+  },
+  "primary_benchmark": {
+    "model": "M_E",
+    "parameters_source": "research/diagnostic_reliability/analysis/outputs/a8_12_feature_level_evaluation/a8_12_final_development_me_parameters.json",
+    "frozen_before_holdout": true
+  },
+  "primary_outcome": {
+    "name": "Y_D",
+    "source": "diagnostic_correctness",
+    "eligible_values": [
+      0,
+      1
+    ],
+    "UNKNOWN_excluded": true,
+    "rationale": "Primary diagnostic correctness is defined only for substantive modal diagnoses."
+  },
+  "evaluation_population": {
+    "partition": "holdout",
+    "scenario_count": 30,
+    "partitioning_unit": "scenario",
+    "expected_primary_eligible_cases": 54,
+    "expected_primary_positive_cases": 11,
+    "expected_primary_negative_cases": 43,
+    "expected_primary_represented_scenarios": 15,
+    "known_compatibility_limitation": "No Y_D-eligible MEMORY_PRESSURE cases are present in the holdout."
+  },
+  "metrics": {
+    "primary": "Brier score",
+    "supporting": [
+      "AUROC",
+      "AUPRC",
+      "ECE",
+      "reliability/calibration assessment"
+    ],
+    "calibration_notes": "Calibration diagnostics are interpreted cautiously because the holdout contains only 54 Y_D-eligible cases and 11 positive outcomes."
+  },
+  "paired_model_comparison": {
+    "comparison": "M_EU minus M_E",
+    "same_holdout_cases": true,
+    "purpose": "Assess incremental information from downstream uncertainty beyond upstream evidence readiness."
+  },
+  "uncertainty_analysis": {
+    "resampling_unit": "scenario",
+    "bootstrap_replicates": 2000,
+    "seed": 20260917,
+    "confidence_level": 0.95,
+    "same_bootstrap_samples_across_models": true,
+    "invalid_discrimination_replicates": "Replicates lacking both outcome classes are excluded from the corresponding discrimination metric interval and counted."
+  },
+  "frozen_policy": {
+    "estimator": "M_EU",
+    "issue_threshold": 0.64,
+    "rules": {
+      "E_equals_0": "WITHHOLD",
+      "E_equals_1_below_threshold": "QUALIFY",
+      "E_equals_1_at_or_above_threshold": "ISSUE"
+    },
+    "threshold_reselection_permitted": false
+  },
+  "unknown_semantics": {
+    "modal_UNKNOWN": "ABSTAIN",
+    "apply_primary_reliability_estimator": false,
+    "assign_incorrect_Y_D": false
+  },
+  "feature_level_checks": [
+    "UNKNOWN modal diagnosis maps to ABSTAIN without a reliability probability.",
+    "Substantive E=0 cases map to WITHHOLD.",
+    "Substantive E=1 cases with predicted reliability below 0.64 map to QUALIFY.",
+    "Substantive E=1 cases with predicted reliability at or above 0.64 map to ISSUE."
+  ],
+  "post_holdout_prohibitions": [
+    "model reselection",
+    "predictor reselection",
+    "coefficient refitting using holdout",
+    "threshold reselection",
+    "post-hoc recalibration using holdout",
+    "prompt tuning",
+    "temperature tuning",
+    "taxonomy changes",
+    "rerunning the main experiment in response to holdout performance"
+  ],
+  "interpretation_constraints": [
+    "Brier score remains the primary model-comparison metric.",
+    "Supporting metrics do not replace the pre-specified primary metric.",
+    "The holdout is a final evaluation sample, not a new development set.",
+    "Failure to outperform M_E on the holdout is retained as a research result rather than tuned away.",
+    "The 0.64 Issue threshold is a development-stage prototype operating criterion, not an externally validated safety guarantee."
+  ],
+  "holdout_performance_seen": false
+}

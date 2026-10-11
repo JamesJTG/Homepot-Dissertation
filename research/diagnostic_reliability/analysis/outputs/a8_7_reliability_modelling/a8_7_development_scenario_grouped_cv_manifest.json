@@ -1,0 +1,40 @@
+{
+  "stage": "A8.7",
+  "substage": "A8.7.3.1",
+  "name": "Development Scenario-Grouped Cross-Validation Assignment",
+  "status": "FROZEN_AFTER_VALIDATION",
+  "created_at_utc": "2026-09-17T15:58:37.413412+00:00",
+  "seed": 20260917,
+  "n_folds": 5,
+  "source_partition": "research/diagnostic_reliability/analysis/outputs/a8_7_reliability_modelling/a8_7_scenario_development_holdout_assignment.csv",
+  "source_partition_sha256": "4a2dae150dd1fdde652839a2a90de52330661ac8feddf4ae6a18c5a801ba96d2",
+  "development_scenarios": 120,
+  "assignment_policy": {
+    "experimental_unit": "scenario_id",
+    "grouping_rule": "All evidence-condition variants belonging to the same scenario remain in the same cross-validation fold.",
+    "stratification_basis": [
+      "ground_truth",
+      "scenario_family"
+    ],
+    "outcome_blind": true,
+    "prohibited_assignment_variables": [
+      "Y_D",
+      "Y_A",
+      "UNKNOWN status",
+      "mean self-reported confidence",
+      "diagnostic entropy",
+      "modal agreement",
+      "model predictions",
+      "model performance"
+    ],
+    "notes": "Fold assignment instantiates the pre-specified 5-fold scenario-grouped development protocol. The assignment uses experimental-design variables only."
+  },
+  "fold_sizes": {
+    "1": 24,
+    "2": 24,
+    "3": 24,
+    "4": 24,
+    "5": 24
+  },
+  "output_assignment": "research/diagnostic_reliability/analysis/outputs/a8_7_reliability_modelling/a8_7_development_scenario_grouped_cv_assignment.csv"
+}

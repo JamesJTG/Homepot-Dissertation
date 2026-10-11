@@ -1,0 +1,170 @@
+{
+  "stage": "A8.13",
+  "substage": "A8.13.2",
+  "name": "Final Technical Freeze",
+  "status": "FROZEN_PENDING_FINAL_REGRESSION_AND_COMMIT",
+  "freeze_created_utc": "2026-09-17T18:59:33.305453+00:00",
+  "repository": {
+    "branch": "main",
+    "pre_freeze_commit": "6d9c8ca51ed94b7857bed3a769cc9ac7aa8f5a01"
+  },
+  "research_question": "How effectively can upstream evidence-readiness and downstream LLM uncertainty signals, individually and in combination, be used to estimate and calibrate the reliability of LLM-generated operational diagnoses within a validation-first IoT decision-support system?",
+  "experimental_design": {
+    "total_scenarios": 150,
+    "total_evidence_cases": 600,
+    "generations_per_case": 7,
+    "total_generations": 4200,
+    "development_scenarios": 120,
+    "holdout_scenarios": 30,
+    "primary_holdout_eligible_cases": 54,
+    "primary_holdout_correct": 11,
+    "primary_holdout_incorrect": 43,
+    "primary_holdout_represented_scenarios": 15,
+    "all_holdout_cases": 120,
+    "holdout_unknown_cases": 66
+  },
+  "measurement_definition": {
+    "upstream_signal_E": "Binary evidence readiness derived from EnvelopeResult.is_actionable",
+    "downstream_uncertainty": [
+      "mean_self_confidence",
+      "diagnostic_entropy"
+    ],
+    "primary_outcome": "diagnostic_correctness (Y_D)",
+    "secondary_outcome": "decision_appropriateness (Y_A)",
+    "unknown_semantics": "UNKNOWN is an abstention decision state and is not converted to Y_D=0."
+  },
+  "selected_prototype_estimator": {
+    "model": "M_EU",
+    "estimator": "Firth logistic regression + FLIC",
+    "flic_intercept": -19.046914056124162,
+    "coefficients": {
+      "E": 6.4463726475121925,
+      "mean_self_confidence": 14.868349383429937,
+      "diagnostic_entropy": 3.118253729498367
+    },
+    "equation": "sigmoid(flic_intercept + beta_E * E + beta_C * mean_self_confidence + beta_H * diagnostic_entropy)"
+  },
+  "frozen_policy": {
+    "UNKNOWN": "ABSTAIN",
+    "E_equals_0": "WITHHOLD",
+    "E_equals_1_below_0_64": "QUALIFY",
+    "E_equals_1_at_or_above_0_64": "ISSUE",
+    "issue_threshold": 0.64
+  },
+  "development_result": {
+    "M_E_brier": 0.050774,
+    "M_EU_brier": 0.048415,
+    "M_EU_minus_M_E_brier": -0.002359,
+    "paired_brier_ci_95": [
+      -0.011065,
+      0.006915
+    ],
+    "interpretation": "M_EU showed the strongest development point estimates, but its incremental advantage over M_E was not conclusive across the pre-specified evaluation metrics."
+  },
+  "final_holdout_result": {
+    "M_E": {
+      "brier": 0.044469,
+      "auroc": 0.965116,
+      "auprc": 0.785714,
+      "ece": 0.026849
+    },
+    "M_EU": {
+      "brier": 0.05837,
+      "auroc": 0.952431,
+      "auprc": 0.722859,
+      "ece": 0.056679
+    },
+    "paired_M_EU_minus_M_E": {
+      "brier": 0.0139,
+      "brier_ci_95": [
+        -9e-06,
+        0.032344
+      ],
+      "auroc": -0.012685,
+      "auprc": -0.062855
+    }
+  },
+  "feature_level_result": {
+    "ABSTAIN": 66,
+    "WITHHOLD": 40,
+    "QUALIFY": 3,
+    "ISSUE": 11,
+    "issue_accuracy": 0.727273,
+    "issue_selective_risk": 0.272727,
+    "abstain_appropriateness": 0.757576
+  },
+  "final_empirical_synthesis": "Within this controlled validation-first IoT diagnostic experiment, upstream evidence readiness provided the most consistently generalising reliability signal. Combining it with the selected downstream uncertainty measures did not demonstrate additional reliability estimation benefit on the final holdout. This finding is specific to the tested system, model, scenarios and uncertainty measures and should not be interpreted as evidence that downstream uncertainty is generally uninformative.",
+  "limitations": [
+    "Only 54 holdout cases were eligible for the primary Y_D estimator evaluation.",
+    "Only 15 holdout scenarios were represented in the primary Y_D evaluation.",
+    "Only 11 positive diagnostic-correctness outcomes occurred in the primary holdout population.",
+    "No Y_D-eligible MEMORY_PRESSURE case was present in the holdout.",
+    "The M_E upstream predictor was strongly separating and effectively binary in this experiment, limiting conclusions about richer upstream reliability representations.",
+    "The downstream uncertainty variables were mean self-reported confidence and repeated-generation diagnostic entropy. The findings do not establish that all forms of downstream uncertainty quantification would behave similarly.",
+    "The 0.64 ISSUE threshold was selected as a development-stage prototype operating criterion and is not an externally validated safety threshold.",
+    "The experiment evaluates controlled fault scenarios using the frozen Gemma 3 12B configuration and should not be assumed to generalise directly to other models, prompts, temperatures, fault taxonomies or operational environments."
+  ],
+  "methodological_safeguards": {
+    "holdout_used_for_model_selection": false,
+    "holdout_used_for_coefficient_refit": false,
+    "holdout_used_for_threshold_selection": false,
+    "post_holdout_recalibration": false,
+    "experiment_rerun_after_holdout": false,
+    "unknown_converted_to_incorrect": false,
+    "scenario_level_bootstrap_used": true,
+    "brier_retained_as_primary_metric": true
+  },
+  "technical_freeze_rules": [
+    "Do not rerun the main experiment in response to final results.",
+    "Do not refit or reselect the reliability estimator using the holdout.",
+    "Do not change the 0.64 policy threshold using holdout results.",
+    "Do not post-hoc recalibrate using the holdout.",
+    "Do not change the frozen prompt, temperature, taxonomy or generation configuration in response to holdout performance.",
+    "Preserve UNKNOWN as an abstention state rather than diagnostic incorrectness.",
+    "Future dissertation analysis must report the final holdout result without retrospective optimisation."
+  ],
+  "next_stage": "A9 Results",
+  "evidence_hashes": {
+    "a8_6_dataset": "f165eb1c41f0c2a901af78219428134b213097e4602440414b79ec2a841f079f",
+    "a8_6_manifest": "0bd1c1b8338d667123c06138e3d7d9d6b6a51c39508e3b173087bdb026f2ef9c",
+    "a8_7_partition": "4a2dae150dd1fdde652839a2a90de52330661ac8feddf4ae6a18c5a801ba96d2",
+    "a8_7_partition_manifest": "427883e2424da1f86e3fbf6b85031f29709811f3387718b6363ec4f77816e345",
+    "a8_7_oof_predictions": "dc7724232753cc75491976b003a11902cac00cfa98057cff036a488e03999f0f",
+    "a8_8_protocol": "190412437c54167cbe1e297b64b486b731b8b7cb75765333d650fbfe332be5cb",
+    "a8_8_metrics": "e7ce73687e8fbb12f4b539d8bba7132f41b941223dbc3bf5c0582493aef1da68",
+    "a8_8_bootstrap": "3cc704f34e67034f8aceb9298aa14fcb231d3bab6ece0e450dd9236303c156f6",
+    "a8_8_calibration": "5e47d61e06052a4431ae156fe516aef8005d90347ffd18ff9acb7e640a21e6c9",
+    "a8_9_selection": "c1ec341c311188da0a16870afee7aa014b2c02f8af2f8e92490d7c55795ccb4e",
+    "a8_10_policy": "5e871a2ffc18a8575ebdece620ba87e578c33610aaae15abed3e4ed989977bf3",
+    "a8_11_parameters": "54ac0d6bec84ad6a217ca7b77bdbf265ed377c1d9788ea36f149bc12bbe035b0",
+    "a8_12_protocol": "10106fc77175730c350dc27c8f74c997f31e3af6c3e632998aeac4446b97adce",
+    "a8_12_estimator_summary": "6f062e3600ffdeb2628c883ded97be8fa0fb91d1163ded2511a5503392feff51",
+    "a8_12_bootstrap": "2be208bedba693ef85335714655918025971a972098233db3090420e8a7214a7",
+    "a8_12_feature": "eed6f2522d6b8b547624bcb150d24b48f3cae9bf7a4f586deae0de44ef4cb38e",
+    "a8_12_synthesis": "8ea33c7614530c4e4177db6bfb25cf59962254121423a19619c3b0b579f15bdd"
+  },
+  "analysis_script_hashes": {
+    "research/diagnostic_reliability/analysis/construct_a8_6_reliability_analysis_dataset.py": "0c58ab4195726165bf418eea448ea4f111598e9c5e9c1ba3375a481e1fe66bd9",
+    "research/diagnostic_reliability/analysis/create_a8_7_scenario_partition.py": "0c6542ccc6343d5833c5854198539dc0e4d3ee5f621e0d77e56ca07f16934436",
+    "research/diagnostic_reliability/analysis/create_a8_7_grouped_cv_folds.py": "c0d13ab049a4f272d9c45140735c69993a113a967bf034ecafd5d94ae8118e16",
+    "research/diagnostic_reliability/analysis/check_a8_7_partition_compatibility.py": "3afc5dae5d658666a47c8743670468a44722514caa659a697f1efd83a7e13449",
+    "research/diagnostic_reliability/analysis/check_a8_7_predictor_structure_and_separation.py": "a5642373aa6ee9c55503245abeb7c9504202bdfef7eb5ca09434b01028a08941",
+    "research/diagnostic_reliability/analysis/check_a8_7_grouped_cv_analytical_compatibility.py": "d34060f9fa6a0a3e48834ef14f1e68b49fe240ed072be8368e0403d079ff4b1b",
+    "research/diagnostic_reliability/analysis/fit_a8_7_grouped_cv_reliability_models.py": "0228e61ffdec02cf62cb2faf8800a527ab366f21acebcf7e52df857a6fd31900",
+    "research/diagnostic_reliability/analysis/check_a8_7_grouped_cv_model_integrity.py": "3e6661116b39c3d88c99b07e824e747342e68edc895d328d1dc4677d0c75ef5e",
+    "research/diagnostic_reliability/analysis/create_a8_8_evaluation_protocol.py": "6849fd85a9b8c6b598d09829a18983967dec6af8572f6c78ea6a08ddf2cd5aa6",
+    "research/diagnostic_reliability/analysis/evaluate_a8_8_oof_reliability_models.py": "e58af082742be6be0d915f8b2e8a0453e4349d641d2195087e80c63afc4f88dc",
+    "research/diagnostic_reliability/analysis/bootstrap_a8_8_scenario_level_model_evaluation.py": "ad2a4e71dedfb5d388f3dd23838b218468d4fce52a2aac0903d7c0aba796578d",
+    "research/diagnostic_reliability/analysis/assess_a8_8_detailed_calibration.py": "a1ab3f57a648113450a6a14901ec3f9bb2265aa8301d62ffd0bbcbbe95ea3f25",
+    "research/diagnostic_reliability/analysis/create_a8_9_reliability_estimator_selection.py": "302f979b1551a2ed047f095e8f017d61e6e727af541c0cdedccebd76c6d889db",
+    "research/diagnostic_reliability/analysis/analyse_a8_10_selective_reliability_policy.py": "8aa6a8b659cc0999a3bac5d42a6760710bc90d37d6f5ec4aa3a8f66232f5f6a7",
+    "research/diagnostic_reliability/analysis/bootstrap_a8_10_policy_operating_points.py": "ba3b41485061be6d81d4cf8fa581e59caa7b35b2fa3edb711ce278a46d3fe72d",
+    "research/diagnostic_reliability/analysis/create_a8_10_reliability_policy.py": "1e8f1e8205539ecd40ce7a9ead93970ad52be26ae7fd34282de7359b0e1ad169",
+    "research/diagnostic_reliability/analysis/fit_a8_11_final_development_reliability_estimator.py": "09f82e1d485e3b75ab6fb7c5285894b99d54ed15e39c21fc6a41e13b192066e2",
+    "research/diagnostic_reliability/analysis/prepare_a8_12_pre_holdout_evaluation.py": "028c4f86662538c58da60b9214902e10359fe1aa4b6b4b2fcd84d4e73ab93b7a",
+    "research/diagnostic_reliability/analysis/evaluate_a8_12_holdout_estimators.py": "ce210af5e9d9b967594fb139cd0541a890b100b48c8ae06cf34171fdd34ded88",
+    "research/diagnostic_reliability/analysis/bootstrap_a8_12_holdout_estimator_evaluation.py": "de5a2d839ababda5b20ea58094459c4267b3d43194da84d8e5b5e852eb7a4ede",
+    "research/diagnostic_reliability/analysis/evaluate_a8_12_holdout_feature_policy.py": "9f5de6c051da1700cce606b7030b49669882521018c35d913ac8727fe077561b",
+    "research/diagnostic_reliability/analysis/create_a8_12_feature_level_evaluation_synthesis.py": "9fa88658f6bcf16136233a61fc2a11dc473f1fd98efabb9cfed7c79c80535157"
+  }
+}

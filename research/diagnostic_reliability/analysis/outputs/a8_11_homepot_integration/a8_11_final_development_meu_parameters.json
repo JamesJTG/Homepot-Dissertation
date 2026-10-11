@@ -1,0 +1,53 @@
+{
+  "stage": "A8.11",
+  "substage": "A8.11.2",
+  "model": "M_EU",
+  "status": "FROZEN_FOR_PROTOTYPE_INTEGRATION",
+  "target": "diagnostic_correctness",
+  "estimator": "Firth logistic regression + FLIC",
+  "predictors": [
+    {
+      "name": "E",
+      "source": "actionable",
+      "encoding": "1=actionable, 0=non-actionable",
+      "coefficient": 6.4463726475121925
+    },
+    {
+      "name": "mean_self_confidence",
+      "coefficient": 14.868349383429937
+    },
+    {
+      "name": "diagnostic_entropy",
+      "coefficient": 3.118253729498367
+    }
+  ],
+  "firth_intercept_before_flic": -19.027272449590566,
+  "flic_intercept": -19.046914056124162,
+  "prediction_equation": "sigmoid(flic_intercept + beta_E * E + beta_C * mean_self_confidence + beta_H * diagnostic_entropy)",
+  "development_fit": {
+    "eligible_cases": 238,
+    "represented_scenarios": 68,
+    "positive_outcomes": 45,
+    "negative_outcomes": 193,
+    "observed_correctness_rate": 0.18907563025210083,
+    "mean_fitted_probability": 0.18907563025210083
+  },
+  "policy": {
+    "issue_threshold": 0.64,
+    "E_equals_0": "WITHHOLD",
+    "E_equals_1_below_threshold": "QUALIFY",
+    "E_equals_1_at_or_above_threshold": "ISSUE"
+  },
+  "unknown_semantics": {
+    "UNKNOWN_is_substantive_fault": false,
+    "apply_primary_reliability_estimator": false,
+    "handling": "ABSTAIN"
+  },
+  "holdout": {
+    "scenario_count": 30,
+    "used_for_fit": false,
+    "used_for_tuning": false,
+    "used_for_evaluation": false,
+    "status": "UNTOUCHED"
+  }
+}

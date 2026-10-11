@@ -1,0 +1,6 @@
+outcome_family,outcome,n,total_generations,analysis_note
+Diagnostic correctness Y_D,Correct,389,4200,Repeated generations are nested within evidence cases and are not treated as independent observations in the primary reliability modelling.
+Diagnostic correctness Y_D,Incorrect,1646,4200,Repeated generations are nested within evidence cases and are not treated as independent observations in the primary reliability modelling.
+Diagnostic correctness Y_D,UNKNOWN / not eligible,2165,4200,Repeated generations are nested within evidence cases and are not treated as independent observations in the primary reliability modelling.
+Decision appropriateness Y_A,Appropriate,2036,4200,Repeated generations are nested within evidence cases and are not treated as independent observations in the primary reliability modelling.
+Decision appropriateness Y_A,Inappropriate,2164,4200,Repeated generations are nested within evidence cases and are not treated as independent observations in the primary reliability modelling.

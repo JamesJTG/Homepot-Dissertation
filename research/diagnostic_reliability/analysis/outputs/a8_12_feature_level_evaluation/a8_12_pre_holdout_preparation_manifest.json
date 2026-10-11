@@ -1,0 +1,21 @@
+{
+  "stage": "A8.12.1",
+  "status": "COMPLETE_AND_FROZEN",
+  "purpose": "Freeze the final development-fitted M_E benchmark and the A8.12 evaluation protocol before final holdout performance is inspected.",
+  "model_selection_performed": false,
+  "predictor_selection_performed": false,
+  "hyperparameter_tuning_performed": false,
+  "threshold_selection_performed": false,
+  "holdout_performance_evaluated": false,
+  "inputs": {
+    "research/diagnostic_reliability/analysis/outputs/a8_6_outcome_uncertainty_construction/a8_6_evidence_case_reliability_dataset.csv": "f165eb1c41f0c2a901af78219428134b213097e4602440414b79ec2a841f079f",
+    "research/diagnostic_reliability/analysis/outputs/a8_7_reliability_modelling/a8_7_scenario_development_holdout_assignment.csv": "4a2dae150dd1fdde652839a2a90de52330661ac8feddf4ae6a18c5a801ba96d2",
+    "research/diagnostic_reliability/analysis/outputs/a8_9_reliability_estimator_selection/a8_9_reliability_estimator_selection.json": "c1ec341c311188da0a16870afee7aa014b2c02f8af2f8e92490d7c55795ccb4e",
+    "research/diagnostic_reliability/analysis/outputs/a8_10_post_inference_reliability_policy/a8_10_frozen_post_inference_reliability_policy.json": "5e871a2ffc18a8575ebdece620ba87e578c33610aaae15abed3e4ed989977bf3",
+    "research/diagnostic_reliability/analysis/outputs/a8_11_homepot_integration/a8_11_final_development_meu_parameters.json": "54ac0d6bec84ad6a217ca7b77bdbf265ed377c1d9788ea36f149bc12bbe035b0"
+  },
+  "outputs": {
+    "research/diagnostic_reliability/analysis/outputs/a8_12_feature_level_evaluation/a8_12_final_development_me_parameters.json": "550d30a63ca5bcdb38ea443f4d949312f00ac08e6343a61206d40ea575585df0",
+    "research/diagnostic_reliability/analysis/outputs/a8_12_feature_level_evaluation/a8_12_pre_holdout_evaluation_protocol.json": "10106fc77175730c350dc27c8f74c997f31e3af6c3e632998aeac4446b97adce"
+  }
+}

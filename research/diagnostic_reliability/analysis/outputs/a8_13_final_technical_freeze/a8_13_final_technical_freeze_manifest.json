@@ -1,0 +1,13 @@
+{
+  "stage": "A8.13",
+  "substage": "A8.13.2",
+  "status": "FREEZE_RECORD_CREATED",
+  "freeze_file": "research/diagnostic_reliability/analysis/outputs/a8_13_final_technical_freeze/a8_13_final_technical_freeze.json",
+  "freeze_file_sha256": "3bbccdc1dc42c40abe486cb1d6cb421c1f8307d724885cacfd612e1afeddbd73",
+  "evidence_files_hashed": 17,
+  "analysis_scripts_hashed": 22,
+  "pre_freeze_git_commit": "6d9c8ca51ed94b7857bed3a769cc9ac7aa8f5a01",
+  "branch": "main",
+  "final_regression_pending": true,
+  "final_commit_pending": true
+}

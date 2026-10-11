@@ -1,0 +1,59 @@
+{
+  "stage": "A8.12",
+  "substage": "A8.12.4",
+  "name": "Frozen Policy and Feature Behaviour Evaluation",
+  "status": "COMPLETE",
+  "population": {
+    "holdout_scenarios": 30,
+    "holdout_cases": 120,
+    "substantive_cases": 54,
+    "unknown_cases": 66,
+    "substantive_correct": 11,
+    "substantive_incorrect": 43
+  },
+  "frozen_policy": {
+    "unknown": "ABSTAIN",
+    "substantive_E_0": "WITHHOLD",
+    "substantive_E_1_below_threshold": "QUALIFY",
+    "substantive_E_1_at_or_above_threshold": "ISSUE",
+    "issue_threshold": 0.64
+  },
+  "state_counts": {
+    "ABSTAIN": 66,
+    "QUALIFY": 3,
+    "ISSUE": 11,
+    "WITHHOLD": 40
+  },
+  "issue_behaviour": {
+    "n_issue": 11,
+    "coverage_among_substantive": 0.2037037037037037,
+    "correct": 8,
+    "incorrect": 3,
+    "accuracy": 0.7272727272727273,
+    "selective_risk": 0.2727272727272727
+  },
+  "qualify_behaviour": {
+    "n_qualify": 3,
+    "correct": 3,
+    "incorrect": 0
+  },
+  "withhold_behaviour": {
+    "n_withhold": 40,
+    "correct": 0,
+    "incorrect": 40
+  },
+  "abstention_behaviour": {
+    "n_abstain": 66,
+    "appropriate_abstentions": 50,
+    "unnecessary_abstentions": 16,
+    "appropriateness_rate": 0.7575757575757576
+  },
+  "safeguards": {
+    "unknown_treated_as_incorrect": false,
+    "model_refitting": false,
+    "threshold_reselection": false,
+    "post_holdout_recalibration": false,
+    "prompt_change": false,
+    "generation_change": false
+  }
+}

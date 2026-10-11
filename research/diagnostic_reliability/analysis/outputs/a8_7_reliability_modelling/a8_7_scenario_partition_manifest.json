@@ -1,0 +1,40 @@
+{
+  "allowed_split_inputs": [
+    "scenario_id",
+    "fault",
+    "scenario_family",
+    "instance",
+    "scenario seed"
+  ],
+  "assignment": {
+    "path": "research/diagnostic_reliability/analysis/outputs/a8_7_reliability_modelling/a8_7_scenario_development_holdout_assignment.csv",
+    "sha256": "4a2dae150dd1fdde652839a2a90de52330661ac8feddf4ae6a18c5a801ba96d2"
+  },
+  "counts": {
+    "development_scenarios": 120,
+    "holdout_scenarios": 30,
+    "total_scenarios": 150
+  },
+  "methodological_note": "The 120-development / 30-holdout protocol was pre-specified before reliability modelling. The exact scenario-ID assignment had not been materialised in the repository. This artefact instantiates that protocol without reference to observed LLM outcomes.",
+  "outcome_blind": true,
+  "partition_method": "Fixed-seed stratified random assignment within each fault x scenario-family stratum. Each of the 15 strata contains 10 scenarios, with 8 assigned to DEVELOPMENT and 2 assigned to HOLDOUT.",
+  "partition_seed": 20260917,
+  "partition_status": "FROZEN",
+  "prohibited_split_inputs": [
+    "diagnostic_correctness",
+    "decision_appropriateness",
+    "modal_diagnosis",
+    "UNKNOWN status",
+    "mean_self_confidence",
+    "diagnostic_entropy",
+    "modal_agreement",
+    "LLM generation outputs"
+  ],
+  "source": {
+    "path": "research/diagnostic_reliability/outputs/main_experiment/cases.jsonl",
+    "sha256": "4ce01e176d4387e2d860201316e503b91798dd123391059dc2057177ce050ede"
+  },
+  "stage": "A8.7",
+  "stage_name": "Reliability Modelling",
+  "substage": "A8.7.2 Frozen Modelling Protocol Recovery and Empirical Compatibility Check"
+}

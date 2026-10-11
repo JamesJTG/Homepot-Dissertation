@@ -1,0 +1,46 @@
+{
+  "stage": "A8.12",
+  "substage": "A8.12.3",
+  "name": "Scenario-Level Holdout Uncertainty Analysis",
+  "status": "COMPLETE",
+  "bootstrap": {
+    "unit": "scenario_id",
+    "represented_scenarios": 15,
+    "requested_replicates": 2000,
+    "brier_valid_replicates": 2000,
+    "discrimination_valid_replicates": 2000,
+    "single_class_discrimination_replicates": 0,
+    "seed": 20260917,
+    "confidence_level": 0.95,
+    "interval_method": "percentile",
+    "cluster_multiplicity_preserved": true,
+    "same_samples_across_models": true
+  },
+  "models": [
+    "M_E",
+    "M_EU"
+  ],
+  "metrics": [
+    "brier_score",
+    "auroc",
+    "auprc"
+  ],
+  "paired_reference_model": "M_E",
+  "paired_comparison_model": "M_EU",
+  "difference_orientation": "M_EU - M_E",
+  "ece_bootstrapped": false,
+  "ece_reason": "ECE remains a supporting binned calibration measure and was not pre-specified for scenario-level bootstrap.",
+  "model_selection_performed": false,
+  "parameter_refitting_performed": false,
+  "threshold_selection_performed": false,
+  "post_holdout_tuning_performed": false,
+  "inputs": {
+    "research/diagnostic_reliability/analysis/outputs/a8_12_feature_level_evaluation/a8_12_holdout_estimator_predictions.csv": "05d2a0a2720241dfe6a99bea6fa5b1792036ee3fc0ffa59a806a192da43b9e7e",
+    "research/diagnostic_reliability/analysis/outputs/a8_12_feature_level_evaluation/a8_12_holdout_estimator_evaluation_summary.json": "6f062e3600ffdeb2628c883ded97be8fa0fb91d1163ded2511a5503392feff51",
+    "research/diagnostic_reliability/analysis/outputs/a8_12_feature_level_evaluation/a8_12_pre_holdout_evaluation_protocol.json": "10106fc77175730c350dc27c8f74c997f31e3af6c3e632998aeac4446b97adce"
+  },
+  "outputs": {
+    "metric_intervals": "research/diagnostic_reliability/analysis/outputs/a8_12_feature_level_evaluation/a8_12_holdout_scenario_bootstrap_metric_intervals.csv",
+    "paired_differences": "research/diagnostic_reliability/analysis/outputs/a8_12_feature_level_evaluation/a8_12_holdout_scenario_bootstrap_paired_differences.csv"
+  }
+}

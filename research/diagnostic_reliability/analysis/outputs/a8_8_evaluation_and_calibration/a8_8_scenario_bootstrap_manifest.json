@@ -1,0 +1,31 @@
+{
+  "stage": "A8.8",
+  "substage": "A8.8.3",
+  "name": "Scenario-Level Bootstrap Uncertainty Analysis",
+  "status": "COMPLETED_AFTER_VALIDATION",
+  "bootstrap": {
+    "unit": "scenario_id",
+    "represented_scenarios": 68,
+    "requested_replicates": 2000,
+    "valid_replicates": 2000,
+    "skipped_single_class_replicates": 0,
+    "seed": 20260917,
+    "confidence_level": 0.95,
+    "interval_method": "percentile",
+    "cluster_multiplicity_preserved": true
+  },
+  "metrics": [
+    "brier_score",
+    "auroc",
+    "auprc"
+  ],
+  "paired_reference_model": "M_E",
+  "holdout_used": false,
+  "model_selection_performed": false,
+  "ece_bootstrapped": false,
+  "ece_reason": "ECE remains a supporting binned calibration measure and is not included in the primary scenario-level bootstrap.",
+  "outputs": {
+    "metric_intervals": "research/diagnostic_reliability/analysis/outputs/a8_8_evaluation_and_calibration/a8_8_scenario_bootstrap_metric_intervals.csv",
+    "paired_differences": "research/diagnostic_reliability/analysis/outputs/a8_8_evaluation_and_calibration/a8_8_scenario_bootstrap_paired_model_differences.csv"
+  }
+}

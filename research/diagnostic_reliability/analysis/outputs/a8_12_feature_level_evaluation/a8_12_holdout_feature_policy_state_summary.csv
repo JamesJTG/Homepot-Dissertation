@@ -1,0 +1,5 @@
+decision_state,n_cases,fraction_of_all_holdout,Y_D_eligible_cases,Y_D_correct_cases,Y_D_accuracy,Y_A_appropriate_cases,Y_A_appropriateness_rate,mean_predicted_reliability
+ABSTAIN,66,0.55,0,0,,50,0.7575757575757576,
+WITHHOLD,40,0.3333333333333333,40,0,0.0,0,0.0,0.002959391902307144
+QUALIFY,3,0.025,3,3,1.0,3,1.0,0.47271505362725535
+ISSUE,11,0.09166666666666666,11,8,0.7272727272727273,8,0.7272727272727273,0.8147293138546978

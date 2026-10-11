@@ -1,0 +1,93 @@
+{
+  "construction": {
+    "case_level_unit": "evidence case",
+    "downstream_uncertainty_signals": [
+      "mean_self_confidence",
+      "diagnostic_entropy"
+    ],
+    "generations_per_case": 7,
+    "modal_diagnosis": "mode of seven repeated diagnoses",
+    "modal_tie_policy": "map tied modal diagnosis to UNKNOWN",
+    "primary_outcome": "diagnostic_correctness",
+    "primary_outcome_unknown_policy": "UNKNOWN excluded from primary diagnostic correctness; diagnostic_correctness=None",
+    "script": "research/diagnostic_reliability/analysis/construct_a8_6_reliability_analysis_dataset.py",
+    "script_sha256": "0c58ab4195726165bf418eea448ea4f111598e9c5e9c1ba3375a481e1fe66bd9",
+    "secondary_outcome": "decision_appropriateness",
+    "supporting_uncertainty_measure": "modal_agreement"
+  },
+  "created_utc": "2026-09-16T22:14:27.628474+00:00",
+  "derived_artifacts": {
+    "case_level_csv": {
+      "path": "research/diagnostic_reliability/analysis/outputs/a8_6_outcome_uncertainty_construction/a8_6_evidence_case_reliability_dataset.csv",
+      "sha256": "f165eb1c41f0c2a901af78219428134b213097e4602440414b79ec2a841f079f"
+    },
+    "case_level_jsonl": {
+      "path": "research/diagnostic_reliability/analysis/outputs/a8_6_outcome_uncertainty_construction/a8_6_evidence_case_reliability_dataset.jsonl",
+      "records": 600,
+      "sha256": "6a7b83fa72c00927b3adea2339b1653aa0ed52236bb51455ba88e0a51bc83967"
+    },
+    "generation_level": {
+      "path": "research/diagnostic_reliability/analysis/outputs/a8_6_outcome_uncertainty_construction/a8_6_generation_level_diagnostic_outcomes.jsonl",
+      "records": 4200,
+      "sha256": "8d6a4e6c3fa439328bcc6635ad36893010bfbd1fbf114950fa46ce32640614d2"
+    }
+  },
+  "observed_case_level_counts": {
+    "decision_appropriateness": {
+      "appropriate": 289,
+      "inappropriate": 311
+    },
+    "diagnostic_correctness": {
+      "correct": 56,
+      "incorrect": 236,
+      "not_applicable_unknown": 308
+    },
+    "error_category": {
+      "APPROPRIATE_ABSTENTION": 233,
+      "CORRECT": 56,
+      "UNNECESSARY_ABSTENTION": 75,
+      "UNSUPPORTED_DIAGNOSIS": 217,
+      "WRONG_FAULT": 19
+    },
+    "modal_diagnosis": {
+      "CPU_SATURATION": 120,
+      "NETWORK_DEGRADATION": 170,
+      "NORMAL": 2,
+      "UNKNOWN": 308
+    }
+  },
+  "purpose": "Transform the frozen A8.5 experimental corpus into generation-level and evidence-case-level analytical datasets for downstream reliability modelling.",
+  "source_experiment": {
+    "cases": {
+      "path": "research/diagnostic_reliability/outputs/main_experiment/cases.jsonl",
+      "records": 600,
+      "sha256": "4ce01e176d4387e2d860201316e503b91798dd123391059dc2057177ce050ede"
+    },
+    "directory": "research/diagnostic_reliability/outputs/main_experiment",
+    "generations": {
+      "path": "research/diagnostic_reliability/outputs/main_experiment/generations.jsonl",
+      "records": 4200,
+      "sha256": "f512f5d1829a1011673b858854932b65744d26d089ae067be27e77b03cfade82"
+    }
+  },
+  "stage": "A8.6",
+  "stage_name": "Uncertainty and Outcome Construction",
+  "status": "FROZEN_AFTER_VALIDATION",
+  "validation": {
+    "case_measurement_mismatches": 0,
+    "case_outcome_scoring_mismatches": 0,
+    "checkpoint": "A8.6.4",
+    "derived_cases": 600,
+    "derived_generations": 4200,
+    "evidence_conditions_per_scenario": 4,
+    "generation_scoring_mismatches": 0,
+    "generation_traceability_mismatches": 0,
+    "modal_ties": 0,
+    "paired_scenarios": 150,
+    "primary_y_d_eligible": 292,
+    "raw_cases": 600,
+    "raw_generations": 4200,
+    "status": "PASS",
+    "upstream_e_traceability_mismatches": 0
+  }
+}

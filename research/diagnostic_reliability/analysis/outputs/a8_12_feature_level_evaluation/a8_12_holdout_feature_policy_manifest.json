@@ -1,0 +1,21 @@
+{
+  "stage": "A8.12",
+  "substage": "A8.12.4",
+  "status": "COMPLETE",
+  "feature": "Post-Inference Diagnostic Reliability Layer",
+  "estimator": "M_EU",
+  "policy_threshold": 0.64,
+  "inputs": {
+    "research/diagnostic_reliability/analysis/outputs/a8_6_outcome_uncertainty_construction/a8_6_evidence_case_reliability_dataset.csv": "f165eb1c41f0c2a901af78219428134b213097e4602440414b79ec2a841f079f",
+    "research/diagnostic_reliability/analysis/outputs/a8_7_reliability_modelling/a8_7_scenario_development_holdout_assignment.csv": "4a2dae150dd1fdde652839a2a90de52330661ac8feddf4ae6a18c5a801ba96d2",
+    "research/diagnostic_reliability/analysis/outputs/a8_11_homepot_integration/a8_11_final_development_meu_parameters.json": "54ac0d6bec84ad6a217ca7b77bdbf265ed377c1d9788ea36f149bc12bbe035b0",
+    "research/diagnostic_reliability/analysis/outputs/a8_12_feature_level_evaluation/a8_12_pre_holdout_evaluation_protocol.json": "10106fc77175730c350dc27c8f74c997f31e3af6c3e632998aeac4446b97adce",
+    "research/diagnostic_reliability/analysis/outputs/a8_12_feature_level_evaluation/a8_12_holdout_estimator_evaluation_summary.json": "6f062e3600ffdeb2628c883ded97be8fa0fb91d1163ded2511a5503392feff51"
+  },
+  "outputs": {
+    "case_level": "research/diagnostic_reliability/analysis/outputs/a8_12_feature_level_evaluation/a8_12_holdout_feature_policy_cases.csv",
+    "state_summary": "research/diagnostic_reliability/analysis/outputs/a8_12_feature_level_evaluation/a8_12_holdout_feature_policy_state_summary.csv",
+    "summary": "research/diagnostic_reliability/analysis/outputs/a8_12_feature_level_evaluation/a8_12_holdout_feature_policy_summary.json"
+  },
+  "post_holdout_tuning": false
+}

@@ -1,0 +1,10 @@
+Measure,Value
+Independent scenarios,150.0
+Evidence cases,600.0
+Generations per case,7.0
+Total generations,4200.0
+Modal UNKNOWN cases,308.0
+Primary Y_D eligible cases,292.0
+Correct eligible diagnoses,56.0
+Incorrect eligible diagnoses,236.0
+Eligible diagnostic accuracy,0.1917808219178082

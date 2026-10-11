@@ -1,0 +1,3 @@
+Estimator,Target,Predictors,Estimation method,Intercept,E coefficient,Mean self-confidence coefficient,Diagnostic entropy coefficient,Equation,Role
+M_E,Y_D,E,Firth logistic regression + FLIC,-5.893245397465492,6.886469005476247,,,logit(p) = -5.893245397 + 6.886469005 E,PRIMARY_UPSTREAM_ONLY_BENCHMARK
+M_EU,Y_D,"E, mean_self_confidence, diagnostic_entropy",Firth logistic regression + FLIC,-19.046914056124162,6.4463726475121925,14.868349383429937,3.118253729498367,logit(p) = -19.046914056 + 6.446372648 E + 14.868349383 C_self_bar + 3.118253729 H_D,Selected combined development estimator

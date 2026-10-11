@@ -1,0 +1,90 @@
+{
+  "stage": "A8.8",
+  "substage": "A8.8.4",
+  "name": "Detailed Calibration Assessment",
+  "status": "COMPLETED_AFTER_VALIDATION",
+  "data": {
+    "type": "development out-of-fold predictions",
+    "cases_per_model": 238,
+    "positive_cases": 45,
+    "negative_cases": 193,
+    "holdout_used": false
+  },
+  "method": {
+    "calibration_model": "Firth logistic calibration model with FLIC intercept correction",
+    "equation": "logit P(Y_D=1) = alpha + beta * logit(predicted_reliability)",
+    "ideal_intercept": 0.0,
+    "ideal_slope": 1.0,
+    "interpretation_warning": "Calibration intercept and slope are descriptive development-stage diagnostics. They are not used here to select a model or fit a post-hoc calibrator."
+  },
+  "results": [
+    {
+      "model": "M_E",
+      "n": 238,
+      "positive_cases": 45,
+      "negative_cases": 193,
+      "observed_correctness_rate": 0.18907563025210083,
+      "mean_predicted_reliability": 0.18925060418851014,
+      "mean_prediction_minus_observed": 0.00017497393640930614,
+      "firth_calibration_intercept": 0.016455455411148654,
+      "flic_calibration_intercept": -0.004252124382294109,
+      "calibration_slope": 1.001434217130201,
+      "mean_flic_recalibrated_probability": 0.18907563025210083
+    },
+    {
+      "model": "M_C",
+      "n": 238,
+      "positive_cases": 45,
+      "negative_cases": 193,
+      "observed_correctness_rate": 0.18907563025210083,
+      "mean_predicted_reliability": 0.18954010027118942,
+      "mean_prediction_minus_observed": 0.00046447001908858643,
+      "firth_calibration_intercept": -0.05371963817558211,
+      "flic_calibration_intercept": -0.0707465435221489,
+      "calibration_slope": 0.9384772446579437,
+      "mean_flic_recalibrated_probability": 0.18907563025210083
+    },
+    {
+      "model": "M_H",
+      "n": 238,
+      "positive_cases": 45,
+      "negative_cases": 193,
+      "observed_correctness_rate": 0.18907563025210083,
+      "mean_predicted_reliability": 0.18905619001789428,
+      "mean_prediction_minus_observed": -1.9440234206552498e-05,
+      "firth_calibration_intercept": -0.35055716305877227,
+      "flic_calibration_intercept": -0.36895076756100365,
+      "calibration_slope": 0.7448235056758664,
+      "mean_flic_recalibrated_probability": 0.18907563025210083
+    },
+    {
+      "model": "M_U",
+      "n": 238,
+      "positive_cases": 45,
+      "negative_cases": 193,
+      "observed_correctness_rate": 0.18907563025210083,
+      "mean_predicted_reliability": 0.19087412769181802,
+      "mean_prediction_minus_observed": 0.0017984974397171893,
+      "firth_calibration_intercept": -0.027536130367184962,
+      "flic_calibration_intercept": -0.04493143391848822,
+      "calibration_slope": 0.9702966403586727,
+      "mean_flic_recalibrated_probability": 0.1890756302521008
+    },
+    {
+      "model": "M_EU",
+      "n": 238,
+      "positive_cases": 45,
+      "negative_cases": 193,
+      "observed_correctness_rate": 0.18907563025210083,
+      "mean_predicted_reliability": 0.18944763556475425,
+      "mean_prediction_minus_observed": 0.00037200531265341175,
+      "firth_calibration_intercept": 0.017906737833268998,
+      "flic_calibration_intercept": 0.0026869803786303548,
+      "calibration_slope": 0.981167435620076,
+      "mean_flic_recalibrated_probability": 0.18907563025210083
+    }
+  ],
+  "model_selection_performed": false,
+  "posthoc_recalibration_performed": false,
+  "threshold_selection_performed": false
+}

@@ -14,6 +14,37 @@ It is a collaborative, multi-partner project that aims to unify the way organisa
 The HOMEPOT Client is one of the building blocks of this vision.
 It is designed as a flexible, extensible client system that enables secure, scalable interactions with devices in real-world scenarios such as retail, hospitality, and industrial operations.
 
+## MSc Dissertation: Post-Inference Diagnostic Reliability
+
+This repository also contains an MSc dissertation research extension investigating the reliability of large language model (LLM) diagnoses of operational device faults.
+
+The research addresses a practical decision-support problem: an LLM can produce a plausible diagnosis even when the underlying telemetry is incomplete, stale or inconsistent, or when repeated generations disagree. A diagnostic support system therefore needs to distinguish between producing a diagnosis and having sufficient evidence to support its use.
+
+The dissertation investigates a **post-inference diagnostic reliability layer (PIDRL)** that combines evidence validation and estimates of diagnostic correctness to determine whether an LLM-generated diagnosis should be issued, qualified, withheld or abstained from.
+
+### Research contribution
+
+The experimental extension provides:
+
+- Controlled device-fault scenarios with known ground truth and independently manipulated evidence conditions.
+- Integration with HOMEPOT's existing data-integrity validation mechanism.
+- Repeated LLM generations and diagnostic uncertainty measurements.
+- A post-inference decision policy distinguishing diagnostic correctness from decision appropriateness.
+- A frozen evaluation involving 150 scenarios, 600 scenario-condition cases and 4,200 LLM generations.
+- Research artefacts supporting inspection of the experimental design, results and limitations.
+
+The experimental harness is **separate from the production `/ai/query` path**. It is a research prototype and should not be interpreted as a deployed production diagnostic safeguard.
+
+### Research documentation
+
+For the experimental architecture, methodology, results, limitations and available reproducibility artefacts, see:
+
+**[Diagnostic Reliability Research README](research/diagnostic_reliability/README.md)**
+
+The principal finding is that evidence validation is important for controlling diagnostic release, while the tested addition of generation-derived uncertainty did not demonstrate an improvement over the evidence-only reliability model on the held-out evaluation. The research therefore distinguishes a useful decision-support mechanism from an unsupported claim that additional uncertainty features necessarily improve predictive reliability.
+
+**Publication note:** HOMEPOT's existing consortium access restrictions, attribution and licensing information remain applicable. Availability of the dissertation extension does not imply permission to redistribute restricted consortium material.
+
 ## Quick Start (macOS & Linux)
 
 We recommend running the project locally without Docker for the best development experience.

@@ -1,0 +1,3 @@
+partition,independent_scenarios,evidence_cases,Y_D_eligible_cases,eligible_represented_scenarios,Y_D_correct,Y_D_incorrect
+Development,120,480,238,68,45,193
+Holdout,30,120,54,15,11,43

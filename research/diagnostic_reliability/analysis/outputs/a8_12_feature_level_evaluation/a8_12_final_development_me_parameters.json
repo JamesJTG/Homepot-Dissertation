@@ -1,0 +1,41 @@
+{
+  "stage": "A8.12",
+  "substage": "A8.12.1",
+  "model": "M_E",
+  "role": "PRIMARY_UPSTREAM_ONLY_BENCHMARK",
+  "status": "FROZEN_BEFORE_HOLDOUT_EVALUATION",
+  "target": "diagnostic_correctness",
+  "estimator": "Firth logistic regression + FLIC",
+  "predictors": [
+    {
+      "name": "E",
+      "source": "actionable",
+      "encoding": "1=actionable, 0=non-actionable",
+      "coefficient": 6.886469005476247
+    }
+  ],
+  "firth_intercept_before_flic": -5.872117060425878,
+  "flic_intercept": -5.893245397465492,
+  "prediction_equation": "sigmoid(flic_intercept + beta_E * E)",
+  "development_fit": {
+    "eligible_cases": 238,
+    "represented_scenarios": 68,
+    "positive_outcomes": 45,
+    "negative_outcomes": 193,
+    "observed_correctness_rate": 0.18907563025210083,
+    "mean_fitted_probability": 0.1890756302521009,
+    "E_by_Y_D": {
+      "E0_Y0": 177,
+      "E0_Y1": 0,
+      "E1_Y0": 16,
+      "E1_Y1": 45
+    }
+  },
+  "holdout": {
+    "scenario_count": 30,
+    "used_for_fit": false,
+    "used_for_tuning": false,
+    "used_for_evaluation": false,
+    "status": "UNTOUCHED"
+  }
+}

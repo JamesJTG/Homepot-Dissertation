@@ -1,0 +1,55 @@
+{
+  "stage": "A8.7",
+  "substage": "A8.7.3.3",
+  "name": "Five-Model Scenario-Grouped Cross-Validated Reliability Modelling",
+  "status": "COMPLETED_AFTER_VALIDATION",
+  "created_at_utc": "2026-09-17T16:07:43.823906+00:00",
+  "estimator": "Firth logistic regression with FLIC intercept correction",
+  "target": "diagnostic_correctness (Y_D)",
+  "target_policy": "Primary modelling includes only substantive modal diagnoses for which Y_D is defined.",
+  "development_scenarios": 120,
+  "development_eligible_cases": 238,
+  "development_y_d_0": 193,
+  "development_y_d_1": 45,
+  "n_folds": 5,
+  "cv_policy": "Scenario-grouped 5-fold cross-validation using the frozen outcome-blind assignment.",
+  "models": {
+    "M_E": [
+      "E"
+    ],
+    "M_C": [
+      "mean_self_confidence"
+    ],
+    "M_H": [
+      "diagnostic_entropy"
+    ],
+    "M_U": [
+      "mean_self_confidence",
+      "diagnostic_entropy"
+    ],
+    "M_EU": [
+      "E",
+      "mean_self_confidence",
+      "diagnostic_entropy"
+    ]
+  },
+  "source_files": {
+    "a8_6_dataset": {
+      "path": "research/diagnostic_reliability/analysis/outputs/a8_6_outcome_uncertainty_construction/a8_6_evidence_case_reliability_dataset.csv",
+      "sha256": "f165eb1c41f0c2a901af78219428134b213097e4602440414b79ec2a841f079f"
+    },
+    "scenario_partition": {
+      "path": "research/diagnostic_reliability/analysis/outputs/a8_7_reliability_modelling/a8_7_scenario_development_holdout_assignment.csv",
+      "sha256": "4a2dae150dd1fdde652839a2a90de52330661ac8feddf4ae6a18c5a801ba96d2"
+    },
+    "cv_assignment": {
+      "path": "research/diagnostic_reliability/analysis/outputs/a8_7_reliability_modelling/a8_7_development_scenario_grouped_cv_assignment.csv",
+      "sha256": "9d9161b8285eb2af322a7e85f8b72ca27881cba1c4afbc80f6febe68b3ddce1d"
+    }
+  },
+  "outputs": {
+    "oof_predictions": "research/diagnostic_reliability/analysis/outputs/a8_7_reliability_modelling/a8_7_grouped_cv_out_of_fold_reliability_predictions.csv",
+    "fold_coefficients": "research/diagnostic_reliability/analysis/outputs/a8_7_reliability_modelling/a8_7_grouped_cv_flic_model_coefficients.csv"
+  },
+  "holdout_policy": "The 30-scenario final holdout is not used for model fitting or OOF prediction."
+}

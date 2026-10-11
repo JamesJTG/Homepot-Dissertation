@@ -1,0 +1,79 @@
+{
+  "stage": "A8.8",
+  "substage": "A8.8.2",
+  "name": "OOF Performance and Calibration Point Estimates",
+  "evaluation_cases": 238,
+  "candidate_models": [
+    "M_E",
+    "M_C",
+    "M_H",
+    "M_U",
+    "M_EU"
+  ],
+  "metrics": [
+    {
+      "model": "M_E",
+      "n": 238,
+      "Y_D_0": 193,
+      "Y_D_1": 45,
+      "observed_correctness_rate": 0.18907563025210083,
+      "mean_predicted_reliability": 0.18925060418851014,
+      "brier_score": 0.05077384531474414,
+      "auroc": 0.9481289579735176,
+      "auprc": 0.6809792072742893,
+      "ece_5_quantile_bins": 0.01718335974789722
+    },
+    {
+      "model": "M_C",
+      "n": 238,
+      "Y_D_0": 193,
+      "Y_D_1": 45,
+      "observed_correctness_rate": 0.18907563025210083,
+      "mean_predicted_reliability": 0.18954010027118942,
+      "brier_score": 0.12425378467918165,
+      "auroc": 0.7561888313183649,
+      "auprc": 0.3898433098015215,
+      "ece_5_quantile_bins": 0.053956224308990344
+    },
+    {
+      "model": "M_H",
+      "n": 238,
+      "Y_D_0": 193,
+      "Y_D_1": 45,
+      "observed_correctness_rate": 0.18907563025210083,
+      "mean_predicted_reliability": 0.18905619001789428,
+      "brier_score": 0.1526622714319549,
+      "auroc": 0.5156591824985608,
+      "auprc": 0.19223198688007714,
+      "ece_5_quantile_bins": 0.02540027794275789
+    },
+    {
+      "model": "M_U",
+      "n": 238,
+      "Y_D_0": 193,
+      "Y_D_1": 45,
+      "observed_correctness_rate": 0.18907563025210083,
+      "mean_predicted_reliability": 0.19087412769181802,
+      "brier_score": 0.12399612820995758,
+      "auroc": 0.7715025906735751,
+      "auprc": 0.39396893701621694,
+      "ece_5_quantile_bins": 0.032090082781144454
+    },
+    {
+      "model": "M_EU",
+      "n": 238,
+      "Y_D_0": 193,
+      "Y_D_1": 45,
+      "observed_correctness_rate": 0.18907563025210083,
+      "mean_predicted_reliability": 0.18944763556475425,
+      "brier_score": 0.048414982371615414,
+      "auroc": 0.9679907887161773,
+      "auprc": 0.7816592121711946,
+      "ece_5_quantile_bins": 0.0075628777671835545
+    }
+  ],
+  "calibration_bins": "5 deterministic equal-frequency bins per model",
+  "holdout_used": false,
+  "model_selection_performed": false,
+  "threshold_selection_performed": false
+}

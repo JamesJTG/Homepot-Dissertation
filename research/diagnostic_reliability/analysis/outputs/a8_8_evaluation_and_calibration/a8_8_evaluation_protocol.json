@@ -1,0 +1,77 @@
+{
+  "stage": "A8.8",
+  "substage": "A8.8.1",
+  "name": "Reliability Evaluation Protocol",
+  "status": "FROZEN_BEFORE_PERFORMANCE_EVALUATION",
+  "created_at_utc": "2026-09-17T16:12:36.982052+00:00",
+  "evaluation_data": {
+    "type": "scenario-grouped out-of-fold development predictions",
+    "eligible_cases": 238,
+    "positive_cases": 45,
+    "negative_cases": 193,
+    "target": "Y_D",
+    "prediction": "predicted_reliability = estimated P(Y_D=1)",
+    "source_file": "research/diagnostic_reliability/analysis/outputs/a8_7_reliability_modelling/a8_7_grouped_cv_out_of_fold_reliability_predictions.csv",
+    "source_sha256": "dc7724232753cc75491976b003a11902cac00cfa98057cff036a488e03999f0f"
+  },
+  "candidate_models": [
+    "M_E",
+    "M_C",
+    "M_H",
+    "M_U",
+    "M_EU"
+  ],
+  "metrics": {
+    "brier_score": {
+      "role": "primary",
+      "direction": "lower_is_better",
+      "purpose": "Overall probabilistic prediction accuracy."
+    },
+    "auroc": {
+      "role": "supporting",
+      "direction": "higher_is_better",
+      "purpose": "Discrimination between correct and incorrect diagnoses."
+    },
+    "auprc": {
+      "role": "supporting",
+      "direction": "higher_is_better",
+      "purpose": "Discrimination with explicit attention to class imbalance."
+    },
+    "ece": {
+      "role": "supporting",
+      "direction": "lower_is_better",
+      "purpose": "Summary of calibration error.",
+      "warning": "ECE depends on binning and must not be interpreted alone."
+    },
+    "reliability_analysis": {
+      "role": "primary_descriptive",
+      "purpose": "Compare mean predicted reliability with observed correctness."
+    }
+  },
+  "calibration": {
+    "primary_bins": 5,
+    "binning_strategy": "quantile",
+    "reason": "Candidate models have substantially different probability distributions; quantile bins reduce sparse or empty bin problems in descriptive reliability analysis."
+  },
+  "uncertainty_estimation": {
+    "method": "scenario_level_bootstrap",
+    "experimental_unit": "scenario_id",
+    "replicates": 2000,
+    "seed": 20260917,
+    "confidence_level": 0.95,
+    "reason": "Evidence cases are nested within underlying scenarios and should not be treated as fully independent rows during resampling."
+  },
+  "comparison_policy": {
+    "primary_numerical_metric": "brier_score",
+    "model_selection_stage": "A8.9",
+    "no_model_selected_in_a8_8": true,
+    "no_threshold_selection_in_a8_8": true,
+    "no_holdout_use": true,
+    "interpretation": "Models are evaluated across probabilistic accuracy, calibration and discrimination. No single supporting metric determines the final estimator."
+  },
+  "holdout_policy": {
+    "status": "UNTOUCHED_FOR_MODEL_SELECTION",
+    "scenario_count": 30,
+    "use_in_a8_8": false
+  }
+}
