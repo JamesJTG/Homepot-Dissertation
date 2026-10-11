@@ -207,6 +207,22 @@ For each evidence case, the repeated generations are aggregated into a modal dia
 
 *Figure: Construction of case-level reliability measures and separation of prediction from ground-truth evaluation.*
 
+### Reliability estimator comparison
+
+Five prespecified reliability estimators compare evidence readiness, generation-derived uncertainty and their combination against the same diagnostic-correctness outcome. All five use Firth logistic regression with FLIC probability correction, allowing their predictive performance to be compared under a consistent modelling approach.
+
+![Analytical reliability framework and five estimator specifications](../../docs/images/dissertation/analytical-reliability-framework.png)
+
+*Figure: Five prespecified reliability estimator specifications and their common prediction target.*
+
+### Development, selection and holdout evaluation
+
+The 150 scenarios were partitioned into 120 development scenarios and 30 untouched holdout scenarios. Scenario-grouped cross-validation supported development-stage estimator comparison and policy selection. The selected estimator, policy threshold and evaluation protocol were frozen before the final holdout evaluation, with no holdout-driven modifications.
+
+![Development selection freeze and holdout evaluation protocol](../../docs/images/dissertation/development-selection-holdout.png)
+
+*Figure: Scenario-grouped development, prespecified evaluation, decision freezing and final untouched holdout assessment.*
+
 ### 7. Inspect the frozen dissertation results
 
 The published results are organised under:
