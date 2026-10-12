@@ -60,6 +60,22 @@ The principal finding is that evidence validation is important for controlling d
 
 **Publication note:** HOMEPOT's existing consortium access restrictions, attribution and licensing information remain applicable. Availability of the dissertation extension does not imply permission to redistribute restricted consortium material.
 
+---
+
+## Original HOMEPOT Platform Documentation (Background Only)
+
+> **For dissertation examiners:** The documentation below belongs to the original HOMEPOT platform. It covers general platform installation, dashboard operation, device simulation, emulation, real-device integration and consortium development workflows.
+>
+> **It is not required to reproduce or evaluate the MSc dissertation research.**
+>
+> For dissertation-specific instructions, use the research and reproducibility guidance above, the dedicated research README, and Appendix H of the dissertation.
+>
+> The dissertation uses a separate research database configuration and experimental workflow. Do not substitute the general HOMEPOT installation or database-initialisation commands below for the dissertation reproduction procedures.
+>
+> The original documentation is retained for platform background and reference.
+
+---
+
 ## Quick Start (macOS & Linux)
 
 We recommend running the project locally without Docker for the best development experience.
